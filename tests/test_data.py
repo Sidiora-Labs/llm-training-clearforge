@@ -1,16 +1,52 @@
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
 import torch
 
-from clearforge.data import PackedDataset, SourceSpec, pack_dataset, prepare_sources
+from clearforge.data import (
+    PackedDataset,
+    SourceSpec,
+    atomic_directory,
+    pack_dataset,
+    prepare_sources,
+)
 from clearforge.tokenizer import ChatTokenizer, train_tokenizer
 
 
 def write(path, rows):
     path.write_text("".join(json.dumps(r) + "\n" for r in rows))
     return path
+
+
+def test_publication_preserves_destination_created_after_existence_check(tmp_path, monkeypatch):
+    output = tmp_path / "prepared"
+    original_exists = Path.exists
+    checks = 0
+    competing_inode = None
+
+    def race_after_check(path):
+        nonlocal checks, competing_inode
+        result = original_exists(path)
+        if path == output:
+            checks += 1
+            if checks == 2:
+                # Reproduce a competing writer between the final check and rename.
+                output.mkdir()
+                competing_inode = output.stat().st_ino
+        return result
+
+    monkeypatch.setattr(Path, "exists", race_after_check)
+    with pytest.raises(FileExistsError):
+        with atomic_directory(output) as staging:
+            (staging / "data.jsonl").write_text("payload\n")
+
+    assert checks == 2
+    assert output.stat().st_ino == competing_inode
+    assert list(output.iterdir()) == []
+    assert not staging.exists()
+    assert not output.with_name("prepared.lock").exists()
 
 
 def test_content_disjoint_deterministic_multi_source(tmp_path):
