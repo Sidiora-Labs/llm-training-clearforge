@@ -73,3 +73,29 @@ def test_missing_paths_fail(tmp_path):
 def test_checkpoint_retention_requires_positive_integer(value):
     with pytest.raises(ValueError, match="keep_checkpoints"):
         TrainConfig(keep_checkpoints=value)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(num_experts=-1),
+        dict(num_experts=1, experts_per_token=2),
+        dict(experts_per_token=0),
+        dict(router_aux_loss_coef=-1),
+        dict(yarn_factor=0.5),
+        dict(yarn_beta_fast=0.1),
+        dict(yarn_original_context=1),
+        dict(yarn_factor=2, rope_theta=1),
+    ],
+)
+def test_invalid_architecture_controls(kwargs):
+    with pytest.raises(ValueError):
+        ModelConfig(**kwargs)
+
+
+def test_legacy_model_defaults_disable_extensions():
+    model = ModelConfig(
+        **{"vocab_size": 512, "hidden_size": 32, "num_heads": 4, "num_kv_heads": 2, "num_layers": 2}
+    )
+    assert model.num_experts == 0
+    assert model.yarn_factor == 1.0

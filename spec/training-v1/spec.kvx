@@ -179,7 +179,7 @@ do_1 = "Pin and ingest English corpora, train tokenizer, prepare packed datasets
 
 [task.6.1]
 title = "Cached decoding and extended model architectures"
-status = "pending"
+status = "done"
 wave = 6
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_model.py tests/test_config.py tests/test_generation.py"
 requires = ["4.2"]
