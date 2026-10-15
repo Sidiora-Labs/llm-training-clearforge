@@ -7,6 +7,7 @@ import os
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 
@@ -15,9 +16,9 @@ from .data import (
     read_manifest,
     records,
     sha256,
-    validate_messages,
     verify_unchanged,
 )
+from .tools import serialize_messages
 
 SPECIAL_TOKENS = ["<|pad|>", "<|bos|>", "<|eos|>", "<|system|>", "<|user|>", "<|assistant|>"]
 
@@ -69,15 +70,18 @@ class ChatTokenizer:
         return path
 
     def encode_chat(
-        self, messages: list[dict[str, str]], *, add_generation_prompt: bool = False
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        add_generation_prompt: bool = False,
+        tools: list[dict[str, Any]] | None = None,
     ) -> tuple[list[int], list[int]]:
-        messages = validate_messages(messages)
-        if add_generation_prompt and messages[-1]["role"] != "user":
-            raise ValueError("generation prompt requires a final user message")
+        rendered = serialize_messages(
+            messages, tools=tools, add_generation_prompt=add_generation_prompt
+        )
         ids, labels = [self.bos_id], [-100]
-        for message in messages:
-            role = message["role"]
-            content = self.encode(message["content"])
+        for role, text in rendered:
+            content = self.encode(text)
             ids.extend([self._special[f"<|{role}|>"]] + content + [self.eos_id])
             labels.extend(
                 [-100]
@@ -87,6 +91,27 @@ class ChatTokenizer:
             ids.append(self._special["<|assistant|>"])
             labels.append(-100)
         return ids, labels
+
+    def apply_chat_template(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tokenize: bool = True,
+        add_generation_prompt: bool = False,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> list[int] | str:
+        """Render the native grammar; native tokenization escapes literal reserved tokens."""
+        if tokenize:
+            return self.encode_chat(
+                messages, tools=tools, add_generation_prompt=add_generation_prompt
+            )[0]
+        rendered = serialize_messages(
+            messages, tools=tools, add_generation_prompt=add_generation_prompt
+        )
+        text = "<|bos|>" + "".join(
+            f"<|{role}|>" + content + "<|eos|>" for role, content in rendered
+        )
+        return text + ("<|assistant|>" if add_generation_prompt else "")
 
 
 def train_tokenizer(
@@ -112,8 +137,12 @@ def train_tokenizer(
                     raise ValueError(f"{locator}: text must be a nonempty string")
                 yield text
             else:
-                for message in validate_messages(record.get("messages"), locator):
-                    yield message["content"]
+                try:
+                    rendered = serialize_messages(record.get("messages"), tools=record.get("tools"))
+                except ValueError as exc:
+                    raise ValueError(f"{locator}: {exc}") from exc
+                for _, text in rendered:
+                    yield text
 
     with atomic_directory(output_dir) as tmp:
         tokenizer = Tokenizer(models.BPE())

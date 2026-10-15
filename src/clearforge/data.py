@@ -114,25 +114,12 @@ def atomic_directory(output_dir: str | Path) -> Iterator[Path]:
             shutil.rmtree(tmp)
 
 
-def validate_messages(messages: object, locator: str = "messages") -> list[dict[str, str]]:
-    if not isinstance(messages, list) or not messages:
-        raise ValueError(f"{locator}: messages must be a nonempty list")
-    clean = []
-    for i, message in enumerate(messages):
-        where = f"{locator}[{i}]"
-        if not isinstance(message, dict) or set(message) != {"role", "content"}:
-            raise ValueError(f"{where}: expected exactly role and content")
-        role, content = message["role"], message["content"]
-        if role not in ("system", "user", "assistant") or not isinstance(content, str):
-            raise ValueError(f"{where}: invalid role or non-string content")
-        if role == "system" and i != 0:
-            raise ValueError(f"{where}: system role must be first")
-        if i and role == messages[i - 1]["role"]:
-            raise ValueError(f"{where}: consecutive identical roles")
-        if role == "assistant" and (i == 0 or messages[i - 1]["role"] != "user"):
-            raise ValueError(f"{where}: assistant must follow user")
-        clean.append({"role": role, "content": content})
-    return clean
+def validate_messages(
+    messages: object, locator: str = "messages", *, tools: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    from .tools import validate_conversation
+
+    return validate_conversation(messages, locator, tools=tools)
 
 
 def records(path: str | Path) -> Iterator[tuple[str, dict[str, Any]]]:
@@ -202,7 +189,20 @@ def prepare_sources(
                             raise ValueError(f"{locator}: text must be a nonempty string")
                         body = {"text": text}
                     else:
-                        body = {"messages": validate_messages(record.get("messages"), locator)}
+                        from .tools import validate_tools
+
+                        tool_list = (
+                            validate_tools(record["tools"], locator + ".tools")
+                            if "tools" in record
+                            else None
+                        )
+                        body = {
+                            "messages": validate_messages(
+                                record.get("messages"), locator, tools=tool_list
+                            )
+                        }
+                        if tool_list is not None:
+                            body["tools"] = tool_list
                     serialized = json.dumps(body, ensure_ascii=False, sort_keys=True)
                     fingerprint = hashlib.sha256(serialized.encode()).hexdigest()
                     score = int(hashlib.sha256(f"{seed}:{fingerprint}".encode()).hexdigest(), 16)
@@ -342,7 +342,10 @@ def pack_dataset(
                                 pending_ids, pending_labels = pending_ids[-1:], [-100]
                         continue
                     ids, labels = tok.encode_chat(
-                        validate_messages(record.get("messages"), locator)
+                        validate_messages(
+                            record.get("messages"), locator, tools=record.get("tools")
+                        ),
+                        tools=record.get("tools"),
                     )
                     supervised = False
                     for start in range(0, len(ids) - 1, seq_length - 1):
@@ -443,3 +446,138 @@ class PackedDataset(Dataset):
             "input_ids": torch.from_numpy(self.input_ids[index].copy()),
             "labels": torch.from_numpy(self.labels[index].copy()),
         }
+
+
+def adapt_conversations(record: dict[str, Any]) -> dict[str, Any]:
+    """Explicitly convert the `conversations` chat format to the native schema."""
+    from .tools import validate_tools
+
+    if not isinstance(record, dict) or set(record) - {"conversations", "tools"}:
+        raise ValueError("conversations adapter expects conversations and optional tools")
+    tools = validate_tools(record["tools"]) if "tools" in record else None
+    result = {"messages": validate_messages(record.get("conversations"), tools=tools)}
+    if tools is not None:
+        result["tools"] = tools
+    return result
+
+
+def adapt_preference(record: dict[str, Any]) -> dict[str, Any]:
+    """Normalize preference pairs; both alternatives must share the same prompt."""
+    from .tools import validate_tools
+
+    if not isinstance(record, dict) or set(record) - {"prompt", "chosen", "rejected", "tools"}:
+        raise ValueError("preference adapter expects chosen/rejected, optional prompt/tools")
+    tools = validate_tools(record["tools"]) if "tools" in record else None
+    if "prompt" in record:
+        prompt = record["prompt"]
+        if isinstance(prompt, str):
+            prompt = [{"role": "user", "content": prompt}]
+        prompt = validate_messages(prompt, "prompt", tools=tools)
+        from .tools import serialize_messages
+
+        serialize_messages(prompt, tools=tools, add_generation_prompt=True)
+        if any(not isinstance(record.get(k), str) for k in ("chosen", "rejected")):
+            raise ValueError("prompt form requires chosen/rejected response strings")
+        alternatives = {
+            k: prompt + [{"role": "assistant", "content": record[k]}]
+            for k in ("chosen", "rejected")
+        }
+    else:
+        alternatives = {k: record.get(k) for k in ("chosen", "rejected")}
+    result = {k: validate_messages(v, k, tools=tools) for k, v in alternatives.items()}
+    chosen, rejected = result["chosen"], result["rejected"]
+    if (
+        any(v[-1]["role"] != "assistant" for v in (chosen, rejected))
+        or chosen[:-1] != rejected[:-1]
+    ):
+        raise ValueError("preferences require a shared prompt and final assistant alternatives")
+    if chosen[-1] == rejected[-1]:
+        raise ValueError("preference alternatives must differ")
+    if tools is not None:
+        result["tools"] = tools
+    return result
+
+
+def adapt_rollout(record: dict[str, Any]) -> dict[str, Any]:
+    """Normalize generation-ready prompts and optional JSON ground truth."""
+    from .tools import canonical_json, serialize_messages, validate_tools
+
+    allowed = {"prompt", "messages", "tools", "expected", "gt"}
+    if (
+        not isinstance(record, dict)
+        or set(record) - allowed
+        or ("prompt" in record) == ("messages" in record)
+    ):
+        raise ValueError("rollout adapter expects exactly one of prompt/messages")
+    if "expected" in record and "gt" in record:
+        raise ValueError("specify expected or gt, not both")
+    prompt = record.get("prompt", record.get("messages"))
+    if isinstance(prompt, str):
+        prompt = [{"role": "user", "content": prompt}]
+    tools = validate_tools(record["tools"]) if "tools" in record else None
+    prompt = validate_messages(prompt, tools=tools)
+    serialize_messages(prompt, tools=tools, add_generation_prompt=True)
+    result = {"messages": prompt}
+    if tools is not None:
+        result["tools"] = tools
+    if "expected" in record or "gt" in record:
+        expected = record.get("expected", record.get("gt"))
+        result["expected"] = json.loads(canonical_json(expected))
+    return result
+
+
+def convert_dataset(source: SourceSpec, output_dir: str | Path, *, adapter: str) -> Path:
+    """Stream an explicit format conversion with source licensing and hash lineage."""
+    adapters = {
+        "conversations": adapt_conversations,
+        "preference": adapt_preference,
+        "rollout": adapt_rollout,
+    }
+    if adapter not in adapters:
+        raise ValueError("adapter must be conversations, preference, or rollout")
+    if (
+        not isinstance(source, SourceSpec)
+        or not isinstance(source.license, str)
+        or not source.license.strip()
+        or not isinstance(source.language, str)
+        or not source.language.strip()
+    ):
+        raise ValueError("conversion requires source license and language declarations")
+    path = Path(source.path)
+    original_hash = sha256(path)
+    with atomic_directory(output_dir) as tmp:
+        count = 0
+        with (tmp / "data.jsonl").open("w", encoding="utf-8") as output:
+            for locator, record in records(path):
+                try:
+                    normalized = adapters[adapter](record)
+                except (ValueError, TypeError) as exc:
+                    raise ValueError(f"{locator}: {exc}") from exc
+                output.write(
+                    json.dumps(normalized, ensure_ascii=False, sort_keys=True, allow_nan=False)
+                    + "\n"
+                )
+                count += 1
+        if not count:
+            raise ValueError("source has no records")
+        verify_unchanged(path, original_hash)
+        (tmp / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "format_version": 1,
+                    "kind": "explicit_dataset_conversion",
+                    "adapter": adapter,
+                    "source": {
+                        "path": str(path.resolve()),
+                        "sha256": original_hash,
+                        "license": source.license,
+                        "language": source.language,
+                    },
+                    "records": count,
+                    "output_sha256": sha256(tmp / "data.jsonl"),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+    return Path(output_dir) / "data.jsonl"
