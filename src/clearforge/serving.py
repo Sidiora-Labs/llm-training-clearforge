@@ -21,14 +21,18 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.requests import ClientDisconnect
 
 from .cli import _device, _load_bundle
+from .tools import ASSISTANT_OPEN, parse_assistant_output, validate_conversation
 
 logger = logging.getLogger(__name__)
 
 
 class Message(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    role: Literal["system", "user", "assistant"]
-    content: str = Field(max_length=262144)
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str | None = Field(default=None, max_length=262144)
+    tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
+    reasoning_content: str | None = None
 
 
 class StreamOptions(BaseModel):
@@ -49,6 +53,8 @@ class ChatRequest(BaseModel):
     stream: bool = False
     stream_options: StreamOptions | None = None
     n: Literal[1] = 1
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: Literal["auto", "none"] = "auto"
 
 
 def _error(message: str, status: int = 400, code: str = "invalid_request_error") -> JSONResponse:
@@ -131,6 +137,7 @@ class Generation:
                 )
                 generated: list[int] = []
                 emitted = ""
+                structured = None
                 finish = "length"
                 for token in iterator:
                     if self.cancel.is_set():
@@ -139,7 +146,16 @@ class Generation:
                     text = tokenizer.decode(generated, skip_special_tokens=True)
                     # Byte-level tokens may end in an incomplete UTF-8 character.
                     stable = text.rstrip("\ufffd")
-                    if stable.startswith(emitted) and len(stable) > len(emitted):
+                    if structured is None and stable:
+                        if stable.startswith(ASSISTANT_OPEN):
+                            structured = True
+                        elif not ASSISTANT_OPEN.startswith(stable):
+                            structured = False
+                    if (
+                        structured is False
+                        and stable.startswith(emitted)
+                        and len(stable) > len(emitted)
+                    ):
                         self._put({"text": stable[len(emitted) :]})
                         emitted = stable
                     if token == tokenizer.eos_id:
@@ -147,11 +163,28 @@ class Generation:
                         break
                 if not self.cancel.is_set():
                     text = tokenizer.decode(generated, skip_special_tokens=True)
-                    if text.startswith(emitted) and len(text) > len(emitted):
+                    message = parse_assistant_output(text, tools=options.tools or [])
+                    validate_conversation(
+                        [m.model_dump(exclude_unset=True) for m in options.messages] + [message],
+                        tools=options.tools,
+                    )
+                    if message.get("tool_calls"):
+                        if options.tool_choice == "none":
+                            raise ValueError("model returned tool calls when tool_choice is none")
+                        finish = "tool_calls"
+                    if structured:
+                        delta = {k: v for k, v in message.items() if k != "role"}
+                        if "tool_calls" in delta:
+                            delta["tool_calls"] = [
+                                {"index": i, **c} for i, c in enumerate(delta["tool_calls"])
+                            ]
+                        self._put({"delta": delta})
+                    elif text.startswith(emitted) and len(text) > len(emitted):
                         self._put({"text": text[len(emitted) :]})
                     self._put(
                         {
                             "finish_reason": finish,
+                            "message": message,
                             "usage": {
                                 "prompt_tokens": len(ids),
                                 "completion_tokens": len(generated),
@@ -306,7 +339,9 @@ def create_app(
             return _error("top_k exceeds model vocabulary")
         try:
             ids, _ = tokenizer.encode_chat(
-                [m.model_dump() for m in options.messages], add_generation_prompt=True
+                [m.model_dump(exclude_unset=True) for m in options.messages],
+                tools=options.tools,
+                add_generation_prompt=True,
             )
         except ValueError as exc:
             return _error(str(exc))
@@ -331,11 +366,9 @@ def create_app(
             "model": options.model,
         }
         if not options.stream:
-            text = ""
             async for event in generation.events(request):
                 if "error" in event:
                     return JSONResponse(event, status_code=500)
-                text += event.get("text", "")
                 if "finish_reason" in event:
                     return {
                         **identity,
@@ -343,7 +376,7 @@ def create_app(
                         "choices": [
                             {
                                 "index": 0,
-                                "message": {"role": "assistant", "content": text},
+                                "message": event["message"],
                                 "finish_reason": event["finish_reason"],
                             }
                         ],
@@ -373,6 +406,8 @@ def create_app(
                         break
                     if "text" in event:
                         yield chunk({"content": event["text"]})
+                    if "delta" in event:
+                        yield chunk(event["delta"])
                     if "finish_reason" in event:
                         yield chunk({}, event["finish_reason"])
                         if options.stream_options and options.stream_options.include_usage:

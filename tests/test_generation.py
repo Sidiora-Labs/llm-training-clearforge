@@ -249,3 +249,72 @@ def test_cpu_autocast_cache_dtype_and_continuation(model):
 def test_invalid_logits_projection_count(model, value):
     with pytest.raises(ValueError, match="logits_to_keep"):
         model(torch.tensor([[1, 2]]), logits_to_keep=value)
+
+
+@pytest.mark.parametrize("stored_dtype", [torch.float32, torch.bfloat16])
+def test_router_projection_keeps_float32_under_cpu_autocast(stored_dtype):
+    torch.manual_seed(41)
+    experts = SparseExperts(config(num_experts=4, experts_per_token=2)).to(stored_dtype)
+    x = torch.randn(2, 3, 16, dtype=stored_dtype, requires_grad=True)
+    expected = F.linear(x.float().reshape(-1, 16), experts.router.weight.float()).softmax(-1)
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        probabilities = experts._route_probabilities(x.reshape(-1, 16))
+        values, auxiliary = experts(x)
+        loss = values.float().square().mean() + auxiliary
+    assert probabilities.dtype == torch.float32
+    torch.testing.assert_close(probabilities, expected, rtol=0, atol=0)
+    loss.backward()
+    assert torch.isfinite(x.grad).all()
+    assert torch.isfinite(experts.router.weight.grad).all()
+    assert experts.router.weight.grad.abs().sum() > 0
+    assert experts.router.weight.grad.dtype == stored_dtype
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA hardware unavailable")
+@pytest.mark.parametrize("seed", [41, 42, 72])
+def test_cuda_bfloat16_router_boundary_cached_parity(seed):
+    if not torch.cuda.is_bf16_supported():
+        pytest.skip("CUDA bfloat16 unavailable")
+    torch.manual_seed(seed)
+    model = (
+        CausalLM(
+            ModelConfig(
+                vocab_size=128,
+                hidden_size=64,
+                num_layers=2,
+                num_heads=4,
+                num_kv_heads=2,
+                intermediate_size=128,
+                max_seq_len=64,
+                num_experts=4,
+                experts_per_token=2,
+            )
+        )
+        .eval()
+        .cuda()
+    )
+    ids = torch.randint(128, (2, 12), device="cuda")
+    routes = [[], []]
+
+    def capture(index):
+        def hook(module, args):
+            probabilities = module._route_probabilities(args[0].reshape(-1, 64))
+            assert probabilities.dtype == torch.float32
+            routes[index].append(probabilities.topk(2).indices.sort().values)
+
+        return hook
+
+    handles = [
+        layer.mlp.register_forward_pre_hook(capture(i)) for i, layer in enumerate(model.layers)
+    ]
+    try:
+        with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+            full = model(ids).logits
+            prefill = model(ids[:, :7], use_cache=True)
+            tail = model(ids[:, 7:], past_key_values=prefill.past_key_values).logits
+        for layer_routes in routes:
+            assert torch.equal(layer_routes[0].view(2, 12, 2)[:, 7:], layer_routes[2].view(2, 5, 2))
+        torch.testing.assert_close(tail, full[:, 7:], atol=0.015, rtol=0.025)
+    finally:
+        for handle in handles:
+            handle.remove()

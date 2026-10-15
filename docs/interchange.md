@@ -86,3 +86,18 @@ six control spellings, not ordinary angle brackets or Unicode text.
 `interchange.json` records export file hashes and the source tokenizer hash.
 Native imports record hashes of their source model/configuration/tokenizer files
 in `provenance.json`. These hashes establish file identity, not publisher trust.
+
+## Tools and reasoning messages
+
+The exported template also renders tool definitions, structured assistant calls,
+reasoning fields, and completed parallel tool-response batches using the same
+vocabulary-preserving envelopes as the native tokenizer. Token-ID parity is
+verified for Unicode, system-message injection, reasoning, and multi-turn tools.
+
+Tool-call arguments may be mappings, which the template canonicalizes, or already
+canonical JSON strings. Jinja cannot parse arbitrary JSON strings. Before passing
+provider messages with string arguments directly to `apply_chat_template`, call
+`clearforge.tools.validate_conversation(messages, tools=tools)` to normalize them,
+or decode each arguments string into a mapping. The rollout HTTP client performs
+this normalization automatically. Validate tool schemas and calls in application
+code before dispatch; a chat template is a renderer, not an execution validator.

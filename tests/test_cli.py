@@ -177,3 +177,210 @@ def test_doctor_counts_presets_without_allocation(name, monkeypatch, capsys):
         "smoke": 106816,
     }
     assert report["parameters"] == expected[name]
+
+
+def test_advanced_training_conversion_and_generation_commands(tmp_path, capsys, monkeypatch):
+    from tokenizers import Tokenizer, models, pre_tokenizers, trainers
+
+    from clearforge.config import ModelConfig
+    from clearforge.model import CausalLM
+    from clearforge.posttraining import _export
+    from clearforge.tokenizer import SPECIAL_TOKENS, ChatTokenizer
+
+    raw = Tokenizer(models.BPE())
+    raw.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+    from tokenizers import decoders
+
+    raw.decoder = decoders.ByteLevel()
+    raw.train_from_iterator(
+        ["Question helpful answer " * 10],
+        trainers.BpeTrainer(
+            vocab_size=280,
+            special_tokens=SPECIAL_TOKENS,
+            initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
+        ),
+    )
+    tokenizer = ChatTokenizer(raw)
+    torch.manual_seed(7)
+    model = CausalLM(
+        ModelConfig(
+            vocab_size=tokenizer.vocab_size,
+            hidden_size=16,
+            num_layers=1,
+            num_heads=2,
+            num_kv_heads=1,
+            intermediate_size=32,
+            max_seq_len=128,
+        )
+    )
+    bundle = tmp_path / "base"
+    _export(model, tokenizer, bundle)
+    data = tmp_path / "chat.jsonl"
+    data.write_text(
+        json.dumps(
+            {
+                "messages": [
+                    {"role": "user", "content": "Question"},
+                    {"role": "assistant", "content": "helpful answer"},
+                ]
+            }
+        )
+        + "\n"
+    )
+    config = tmp_path / "post.toml"
+    config.write_text(
+        '[training]\noutput_path="lora"\nsteps=2\ndevice="cpu"\n[adapter]\nrank=2\nalpha=4\n'
+    )
+
+    def run(*args):
+        assert main(["--threads", "2", *map(str, args)]) == 0, capsys.readouterr().err
+        return capsys.readouterr().out
+
+    result = json.loads(
+        run(
+            "post-train",
+            "--model",
+            bundle,
+            "--data",
+            data,
+            "--config",
+            config,
+            "--objective",
+            "lora",
+        )
+    )
+    assert result["status"] == "complete" and result["step"] == 2
+    assert (tmp_path / "lora/adapter/adapter.json").is_file()
+    merged = tmp_path / "merged"
+    run(
+        "merge-adapter",
+        "--model",
+        bundle,
+        "--adapter",
+        tmp_path / "lora/adapter",
+        "--output",
+        merged,
+    )
+    first = run(
+        "chat",
+        "--model",
+        merged,
+        "--prompt",
+        "Question",
+        "--device",
+        "cpu",
+        "--max-new-tokens",
+        "4",
+    )
+    streamed = run(
+        "chat",
+        "--model",
+        merged,
+        "--prompt",
+        "Question",
+        "--device",
+        "cpu",
+        "--max-new-tokens",
+        "4",
+        "--stream",
+    )
+    assert first == streamed
+    many = json.loads(
+        run(
+            "chat",
+            "--model",
+            merged,
+            "--prompt",
+            "Question",
+            "--device",
+            "cpu",
+            "--max-new-tokens",
+            "4",
+            "--num-return-sequences",
+            "2",
+        )
+    )
+    assert many == [first.rstrip("\n")] * 2
+    corpus = tmp_path / "text.jsonl"
+    corpus.write_text(json.dumps({"text": "hello café <|user|>"}) + "\n")
+    diagnostics = json.loads(run("tokenizer", "inspect", "--tokenizer", bundle, "--input", corpus))
+    assert diagnostics["roundtrip_failures"] == 0 and diagnostics["records"] == 1
+    cases = tmp_path / "cases.jsonl"
+    cases.write_text(
+        json.dumps(
+            {"messages": [{"role": "user", "content": "Question"}], "expected": first.rstrip("\n")}
+        )
+        + "\n"
+    )
+    report = json.loads(
+        run(
+            "evaluate-generation",
+            "--model",
+            merged,
+            "--device",
+            "cpu",
+            "--cases",
+            cases,
+            "--output",
+            tmp_path / "report.json",
+            "--max-new-tokens",
+            "4",
+        )
+    )
+    assert report["passed"] == 1
+    import types
+
+    from clearforge.rollout import ToolRegistry
+
+    callbacks = types.ModuleType("clearforge_test_callbacks")
+    callbacks.registry = ToolRegistry
+    callbacks.reward = lambda record, episode: float(episode.completion_tokens)
+    monkeypatch.setitem(sys.modules, callbacks.__name__, callbacks)
+    agent_data = tmp_path / "prompts.jsonl"
+    agent_data.write_text(json.dumps({"prompt": "Question"}) + "\n")
+    agent_config = tmp_path / "agent.toml"
+    agent_config.write_text(
+        '[training]\noutput_path="agent"\nsteps=1\nmax_new_tokens=4\npolicy_epochs=1\ndevice="cpu"\n[training.episode_limits]\nmax_turns=1\n'
+    )
+    agent_result = json.loads(
+        run(
+            "train-agent",
+            "--model",
+            bundle,
+            "--data",
+            agent_data,
+            "--config",
+            agent_config,
+            "--registry",
+            "clearforge_test_callbacks:registry",
+            "--registry-id",
+            "empty-v1",
+            "--reward",
+            "clearforge_test_callbacks:reward",
+            "--reward-id",
+            "length-v1",
+        )
+    )
+    assert (
+        agent_result["status"] == "complete"
+        and (tmp_path / "agent/model/provenance.json").is_file()
+    )
+    pytest.importorskip("transformers")
+    hf = tmp_path / "hf"
+    run("convert-model", "--direction", "to-transformers", "--input", merged, "--output", hf)
+    native = tmp_path / "native"
+    run("convert-model", "--direction", "from-transformers", "--input", hf, "--output", native)
+    assert (
+        run(
+            "chat",
+            "--model",
+            native,
+            "--prompt",
+            "Question",
+            "--device",
+            "cpu",
+            "--max-new-tokens",
+            "4",
+        )
+        == first
+    )

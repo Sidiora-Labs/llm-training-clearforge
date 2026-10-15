@@ -106,3 +106,52 @@ checkpoints through API requests.
 
 For ASGI integration, `create_app(model_paths, device=..., api_key=..., ...)`
 returns a FastAPI application with the same limits as `serve`.
+
+## Function-call conversations
+
+Requests may supply a `tools` list of function definitions and assistant/tool
+messages using `tool_calls`, `tool_call_id`, and optional `reasoning_content`.
+Definitions and call arguments use the [validated tool schema](data.md#tool-conversations-and-reasoning-fields).
+Tool definitions are included in the model's system context, so they count against
+the prompt budget. A generation request may end after all outstanding tool results
+have been returned, as well as after a user message. Missing, duplicate, unknown,
+or partially answered call IDs fail before generation starts.
+
+A model's complete structured assistant output is parsed and validated before
+returning function calls. Nonstreaming responses expose `message.tool_calls` and
+optional `message.reasoning_content`. Calls set `finish_reason` to `tool_calls`.
+With SSE, ordinary text streams immediately; a structured response is buffered
+until complete and valid, then emitted as a delta containing content, optional
+reasoning, and indexed tool calls. Function arguments are canonical JSON strings.
+Malformed or undeclared calls produce an error, never a partially validated call.
+
+`tool_choice` accepts `auto` (default) or `none`. With `none`, generated calls are
+rejected. Forced or named tool choices are not accepted. The server returns calls
+but does not execute them; the client controls function dispatch, appends matching
+`tool` result messages, and submits the next request. The browser chat interface
+is for text conversations; use the API or rollout client for tool execution.
+
+## Browser smoke check
+
+An optional Chromium check exercises the real browser against a running service:
+streamed generation, conversation history, regenerate, Stop, reset, server-error
+recovery, model selection when multiple models are loaded, and the mobile settings
+panel. It also captures desktop/mobile screenshots and JavaScript console results.
+Use a local test export with at least a 256-token context; the check sends short
+prompts and requests up to 128 response tokens.
+
+Keep browser tooling separate from the training environment:
+
+```bash
+python -m venv /tmp/clearforge-browser-env
+/tmp/clearforge-browser-env/bin/python -m pip install playwright
+/tmp/clearforge-browser-env/bin/python -m playwright install --with-deps chromium
+/tmp/clearforge-browser-env/bin/python tests/browser_smoke.py \
+  --url http://127.0.0.1:8000 --output /tmp/clearforge-browser-check
+```
+
+Start the service first. Set `CLEARFORGE_API_KEY` when its API requires
+authentication, or select another variable with `--api-key-env`. The check runs
+explicitly and is not collected by the ordinary pytest suite. Its intentional
+invalid request produces an expected HTTP 400 browser diagnostic; JavaScript
+exceptions and other unexpected console errors fail the check.
