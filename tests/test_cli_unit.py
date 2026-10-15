@@ -61,6 +61,7 @@ def _manifest(path):
 def test_bundle_loads_real_weights(bundle):
     model, tokenizer = _load_bundle(bundle, torch.device("cpu"))
     assert model.config.vocab_size == tokenizer.vocab_size
+    assert model.lm_head.weight is model.token_embedding.weight
     assert not model.training
     assert torch.isfinite(model(torch.tensor([[tokenizer.bos_id, 10]])).logits).all()
 
@@ -120,3 +121,13 @@ def test_threads_are_positive():
     with pytest.raises(SystemExit) as error:
         main(["--threads", "0", "doctor"])
     assert error.value.code == 2
+
+
+def test_inconsistent_tied_weights_rejected(bundle):
+    path = bundle / "model.pt"
+    weights = torch.load(path, weights_only=True)
+    weights["lm_head.weight"] = weights["lm_head.weight"].clone() + 1
+    torch.save(weights, path)
+    _manifest(bundle)
+    with pytest.raises(ValueError, match="inconsistent tied"):
+        _load_bundle(bundle, torch.device("cpu"))

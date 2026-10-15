@@ -1,7 +1,7 @@
 # A functional CPU check, not a useful pretrained language model.
 stage = "pretrain"
 data_dir = "../data/smoke-packed"
-tokenizer_path = "../data/smoke-tokenizer"
+tokenizer_path = "../data/smoke-tokenizer/tokenizer.json"
 output_dir = "../runs/smoke-pretrain"
 
 [model]
