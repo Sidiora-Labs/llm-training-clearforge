@@ -1,0 +1,35 @@
+# Nominal size; inspect the exact parameter count with clearforge doctor.
+stage = "pretrain"
+data_dir = "@RUN_ROOT@/pretrain-packed"
+tokenizer_path = "@RUN_ROOT@/tokenizer/tokenizer.json"
+output_dir = "@RUN_ROOT@/pretrain"
+
+[model]
+vocab_size = 32768
+hidden_size = 768
+num_layers = 12
+num_heads = 12
+num_kv_heads = 4
+intermediate_size = 2048
+max_seq_len = 1024
+dropout = 0.0
+rope_theta = 10000.0
+tie_embeddings = true
+
+[training]
+max_steps = 65536
+batch_size = 8
+accumulation_steps = 4
+learning_rate = 0.0006
+weight_decay = 0.1
+warmup_steps = 1000
+min_lr_ratio = 0.1
+grad_clip = 1.0
+seed = 42
+device = "auto"
+precision = "bf16"
+save_every = 500
+eval_every = 500
+eval_batches = 8
+deterministic = true
+keep_checkpoints = 3

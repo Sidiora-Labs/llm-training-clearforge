@@ -170,7 +170,7 @@ do_2 = "retain concise setup and operating instructions"
 [task.5.1]
 title = "Launch the full 100M English pretraining and chat pipeline"
 status = "in_progress"
-wave = 6
+wave = 5
 verify_cmd = "python3 -m py_compile scripts/train_100m.py"
 requires = ["4.2"]
 touches = ["scripts/train_100m.py", "configs/english-100m-*.toml", "requirements-training.txt"]
