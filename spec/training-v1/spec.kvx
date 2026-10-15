@@ -107,7 +107,7 @@ verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests"
 
 [task.2.4]
 title = "Presets and operating documentation"
-status = "in_progress"
+status = "done"
 wave = 1
 verify_cmd = "python3 scripts/check_presets.py"
 requires = ["1.1"]

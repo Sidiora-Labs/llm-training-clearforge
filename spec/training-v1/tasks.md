@@ -16,7 +16,7 @@
   - [ ] 2.3 Training checkpoints and evaluation
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 4.1_
-  - [-] 2.4 Presets and operating documentation
+  - [x] 2.4 Presets and operating documentation
     - Define size presets and reproducible operating instructions
     - distinguish smoke data from production quality
     - _Requirements: 6.1_
