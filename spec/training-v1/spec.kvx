@@ -100,3 +100,13 @@ reqs = ["5.1"]
 do_1 = "Implement the contract and adversarial tests; preserve truthful documentation and evidence."
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests"
 
+[task.2.4]
+title = "Presets and operating documentation"
+status = "pending"
+wave = 1
+verify_cmd = "python3 scripts/check_presets.py"
+requires = ["1.1"]
+touches = ["configs/*.toml", "docs/getting-started.md", "docs/data.md", "docs/training.md", "docs/architecture.md", "docs/development/quality.md", "CONTRIBUTING.md", "CHANGELOG.md", "LICENSE"]
+reqs = ["5.1"]
+do_1 = "Define size presets and reproducible operating instructions"
+do_2 = "distinguish smoke data from production quality"
