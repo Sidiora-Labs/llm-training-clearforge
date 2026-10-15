@@ -62,7 +62,7 @@ verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_
 
 [task.2.2]
 title = "Causal decoder and generation"
-status = "pending"
+status = "in_progress"
 wave = 1
 requires = ["1.1"]
 touches = ["src/clearforge/model.py", "tests/test_model.py"]

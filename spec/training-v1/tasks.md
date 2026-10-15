@@ -10,7 +10,7 @@
   - [ ] 2.1 Data preparation and tokenizer
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 2.1_
-  - [ ] 2.2 Causal decoder and generation
+  - [-] 2.2 Causal decoder and generation
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 3.1_
   - [ ] 2.3 Training checkpoints and evaluation
