@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import fcntl
 import hashlib
 import json
 import math
 import os
+import platform
 import random
 import shutil
 import signal
@@ -29,9 +31,12 @@ from torch import Tensor
 from .checkpoint import (
     FORMAT_VERSION,
     atomic_save,
+    atomic_write_bytes,
     capture_rng_state,
     file_sha256,
     load_checkpoint,
+    load_checkpoint_with_hash,
+    publish_directory,
     publish_latest,
     restore_rng_state,
 )
@@ -146,11 +151,43 @@ def _device(config: RunConfig) -> torch.device:
 
 def _runtime_identity(device: torch.device) -> dict[str, Any]:
     return {
+        "implementation": {
+            name: file_sha256(Path(__file__).with_name(name))
+            for name in (
+                "training.py",
+                "checkpoint.py",
+                "model.py",
+                "data.py",
+                "tokenizer.py",
+                "config.py",
+            )
+        },
         "torch_version": str(torch.__version__),
         "numpy_version": np.__version__,
         "device": str(device),
         "cuda_version": torch.version.cuda,
         "cuda_devices": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+        "threads": torch.get_num_threads(),
+        "interop_threads": torch.get_num_interop_threads(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "torch_build": hashlib.sha256(torch.__config__.show().encode()).hexdigest(),
+        "cublas_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
+        "cuda_hardware": [
+            {
+                "name": torch.cuda.get_device_name(index),
+                "capability": list(torch.cuda.get_device_capability(index)),
+            }
+            for index in range(torch.cuda.device_count())
+        ]
+        if torch.cuda.is_available()
+        else [],
+        "sdpa": {
+            "flash": torch.backends.cuda.flash_sdp_enabled(),
+            "efficient": torch.backends.cuda.mem_efficient_sdp_enabled(),
+            "math": torch.backends.cuda.math_sdp_enabled(),
+            "cudnn": torch.backends.cuda.cudnn_sdp_enabled(),
+        },
     }
 
 
@@ -212,11 +249,15 @@ class _DataCursor:
             self.order = self._order()
         else:
             self.epoch, self.position, self.order = (
-                state["epoch"], state["position"], state["order"]
+                state["epoch"],
+                state["position"],
+                state["order"],
             )
             if (
-                type(self.epoch) is not int or self.epoch < 0
-                or type(self.position) is not int or not 0 <= self.position <= size
+                type(self.epoch) is not int
+                or self.epoch < 0
+                or type(self.position) is not int
+                or not 0 <= self.position <= size
                 or not isinstance(self.order, list)
                 or any(type(index) is not int for index in self.order)
                 or sorted(self.order) != list(range(size))
@@ -237,7 +278,7 @@ class _DataCursor:
             if self.position == self.size:
                 break
             end = min(self.size, self.position + batch_size)
-            batches.append(self.order[self.position:end])
+            batches.append(self.order[self.position : end])
             self.position = end
         return batches
 
@@ -248,8 +289,7 @@ class _DataCursor:
 def _batch(dataset: PackedDataset, indices: list[int], device: torch.device) -> dict[str, Tensor]:
     rows = [dataset[index] for index in indices]
     return {
-        key: torch.stack([row[key] for row in rows]).to(device)
-        for key in ("input_ids", "labels")
+        key: torch.stack([row[key] for row in rows]).to(device) for key in ("input_ids", "labels")
     }
 
 
@@ -283,7 +323,8 @@ def _validation(
         mean = total_loss / tokens
         return {
             "loss": mean,
-            "perplexity": math.exp(mean) if mean < 709 else float("inf"),
+            "perplexity": math.exp(mean) if mean < 709 else None,
+            "perplexity_overflow": mean >= 709,
             "tokens": tokens,
             "batches": batches,
         }
@@ -326,6 +367,88 @@ def _read_resume_metrics(output: Path, payload: dict[str, Any]) -> bytes:
     return prefix
 
 
+@contextlib.contextmanager
+def _run_lock(output: Path) -> Iterator[None]:
+    """Reject a concurrent writer, including a second process resuming this run."""
+    with (output / ".run.lock").open("a+b") as stream:
+        try:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("another process owns this training run") from error
+        try:
+            yield
+        finally:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def _validate_loaded_state(
+    model: CausalLM,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LambdaLR,
+    cursor: _DataCursor,
+    config: RunConfig,
+    step: int,
+    scaler: torch.amp.GradScaler,
+) -> None:
+    for parameter in model.parameters():
+        if not torch.isfinite(parameter).all().item():
+            raise ValueError("checkpoint contains nonfinite model weights")
+    if scheduler.last_epoch != step:
+        raise ValueError("checkpoint scheduler does not match optimizer step")
+    schedule = scheduler.state_dict()
+    if (
+        schedule["base_lrs"] != [config.training.learning_rate]
+        or schedule["_step_count"] != step + 1
+        or schedule["_last_lr"] != [g["lr"] for g in optimizer.param_groups]
+    ):
+        raise ValueError("checkpoint scheduler state is inconsistent")
+    scale = scaler.state_dict()
+    if scale and (
+        not math.isfinite(scale["scale"])
+        or scale["scale"] <= 0
+        or scale["growth_factor"] != 2.0
+        or scale["backoff_factor"] != 0.5
+        or scale["growth_interval"] != 2000
+        or not 0 <= scale["_growth_tracker"] < 2000
+    ):
+        raise ValueError("checkpoint gradient scaler state is invalid")
+    if cursor.order != cursor._order():
+        raise ValueError("checkpoint data permutation does not match its epoch and seed")
+    stride = config.training.batch_size * config.training.accumulation_steps
+    updates_per_epoch = math.ceil(cursor.size / stride)
+    expected_epoch = (step - 1) // updates_per_epoch if step else 0
+    expected_position = (
+        min(cursor.size, ((step - 1) % updates_per_epoch + 1) * stride) if step else 0
+    )
+    if (cursor.epoch, cursor.position) != (expected_epoch, expected_position):
+        raise ValueError("checkpoint cursor does not match optimizer progress")
+    expected_lr = config.training.learning_rate * learning_rate_factor(
+        step,
+        max_steps=config.training.max_steps,
+        warmup_steps=config.training.warmup_steps,
+        minimum=config.training.min_lr_ratio,
+    )
+    for group in optimizer.param_groups:
+        if group["lr"] != expected_lr or group["weight_decay"] != config.training.weight_decay:
+            raise ValueError("checkpoint optimizer hyperparameters do not match configuration")
+        if group["betas"] != (0.9, 0.999) or group["eps"] != 1e-8 or group["amsgrad"]:
+            raise ValueError("checkpoint AdamW settings do not match this trainer")
+        for parameter in group["params"]:
+            state = optimizer.state.get(parameter, {})
+            if step == 0:
+                if state:
+                    raise ValueError("initial checkpoint unexpectedly contains optimizer moments")
+                continue
+            if not state or float(state["step"]) != step:
+                raise ValueError("checkpoint AdamW step does not match optimizer progress")
+            for name in ("exp_avg", "exp_avg_sq"):
+                moment = state[name]
+                if moment.shape != parameter.shape or not torch.isfinite(moment).all().item():
+                    raise ValueError("checkpoint optimizer moment shape or values are invalid")
+                if name == "exp_avg_sq" and (moment < 0).any().item():
+                    raise ValueError("checkpoint second moments must be nonnegative")
+
+
 def train(
     config: RunConfig, *, resume: str | Path | None = None, stop_after_steps: int | None = None
 ) -> TrainResult:
@@ -347,9 +470,10 @@ def train(
     inputs = _inputs(config)
     identities = {**inputs.identities, "runtime": _runtime_identity(device)}
     output = config.output_dir
-    payload = load_checkpoint(resume) if resume is not None else None
+    payload, loaded_hash = load_checkpoint_with_hash(resume) if resume is not None else (None, None)
     metrics_prefix = b""
     initial = None
+    initial_hash = None
     if payload is not None:
         if payload["config"] != config.to_dict():
             raise ValueError("resume configuration differs from checkpoint")
@@ -364,7 +488,7 @@ def train(
         if config.stage == "sft":
             if config.init_checkpoint is None:
                 raise ValueError("a fresh SFT run requires init_checkpoint")
-            initial = load_checkpoint(config.init_checkpoint)
+            initial, initial_hash = load_checkpoint_with_hash(config.init_checkpoint)
             if initial["config"]["stage"] != "pretrain":
                 raise ValueError("SFT initialization requires a native pretraining checkpoint")
             if initial["config"]["model"] != dataclasses.asdict(config.model):
@@ -373,19 +497,30 @@ def train(
                 raise ValueError("initial checkpoint tokenizer identity differs")
         elif config.init_checkpoint is not None:
             raise ValueError("init_checkpoint is for a new SFT run; use resume for pretraining")
-    with _determinism(config.training.deterministic):
+    with _determinism(config.training.deterministic), contextlib.ExitStack() as locks:
+        if payload:
+            locks.enter_context(_run_lock(output))
+            canonical_checkpoint = output / "checkpoints" / f"step-{payload['step']:08d}.pt"
+            if (
+                not canonical_checkpoint.is_file()
+                or file_sha256(canonical_checkpoint) != loaded_hash
+            ):
+                raise ValueError("resume checkpoint does not match its owned immutable step file")
+            metrics_prefix = _read_resume_metrics(output, payload)
         _seed(config.training.seed)
         model = CausalLM(config.model).to(device)
         if payload is not None or initial is not None:
             model.load_state_dict((payload or initial)["model"], strict=True)
         optimizer = torch.optim.AdamW(
-            model.parameters(), lr=config.training.learning_rate,
+            model.parameters(),
+            lr=config.training.learning_rate,
             weight_decay=config.training.weight_decay,
         )
         scheduler = torch.optim.lr_scheduler.LambdaLR(
             optimizer,
             lambda index: learning_rate_factor(
-                index, max_steps=config.training.max_steps,
+                index,
+                max_steps=config.training.max_steps,
                 warmup_steps=config.training.warmup_steps,
                 minimum=config.training.min_lr_ratio,
             ),
@@ -404,26 +539,30 @@ def train(
             scheduler.load_state_dict(payload["scheduler"])
             scaler.load_state_dict(payload["scaler"])
             restore_rng_state(payload["rng"])
+            _validate_loaded_state(model, optimizer, scheduler, cursor, config, step, scaler)
             run_id = payload["run_id"]
         else:
             run_id = uuid.uuid4().hex
+        if not payload:
+            _validate_loaded_state(model, optimizer, scheduler, cursor, config, step, scaler)
         # All compatibility checks and state loading precede output mutations.
         if payload is None:
             output.mkdir(parents=True, exist_ok=False)
+            locks.enter_context(_run_lock(output))
             (output / "checkpoints").mkdir()
             run_manifest = {
-                "run_id": run_id, "config": config.to_dict(), "identities": identities,
-                "initial_checkpoint_sha256": file_sha256(config.init_checkpoint)
-                if config.init_checkpoint else None,
+                "run_id": run_id,
+                "config": config.to_dict(),
+                "identities": identities,
+                "initial_checkpoint_sha256": initial_hash,
             }
-            (output / "run.json").write_bytes(_json_bytes(run_manifest))
+            atomic_write_bytes(_json_bytes(run_manifest), output / "run.json")
         metrics_path = output / "metrics.jsonl"
-        with metrics_path.open("wb") as stream:
-            stream.write(metrics_prefix)
-            stream.flush()
-            os.fsync(stream.fileno())
-        last_saved = -1
-        checkpoint = output / "latest.pt"
+        atomic_write_bytes(metrics_prefix, metrics_path)
+        last_saved = step if payload else -1
+        checkpoint = canonical_checkpoint if payload else output / "latest.pt"
+        if payload:
+            publish_latest(checkpoint, output / "latest.pt")
 
         def save() -> None:
             nonlocal last_saved, checkpoint
@@ -432,17 +571,28 @@ def train(
             journal = metrics_path.read_bytes()
             checkpoint = output / "checkpoints" / f"step-{step:08d}.pt"
             state = {
-                "format_version": FORMAT_VERSION, "run_id": run_id,
-                "config": config.to_dict(), "identities": identities,
-                "model": model.state_dict(), "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict(), "scaler": scaler.state_dict(),
-                "step": step, "rng": capture_rng_state(), "data_cursor": cursor.state_dict(),
+                "format_version": FORMAT_VERSION,
+                "run_id": run_id,
+                "config": config.to_dict(),
+                "identities": identities,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "scheduler": scheduler.state_dict(),
+                "scaler": scaler.state_dict(),
+                "step": step,
+                "rng": capture_rng_state(),
+                "data_cursor": cursor.state_dict(),
                 "metrics": {"bytes": len(journal), "sha256": hashlib.sha256(journal).hexdigest()},
-                "train_loss": train_loss, "validation_loss": validation_loss,
+                "train_loss": train_loss,
+                "validation_loss": validation_loss,
             }
             atomic_save(state, checkpoint)
             publish_latest(checkpoint, output / "latest.pt")
             last_saved = step
+            owned = sorted((output / "checkpoints").glob("step-????????.pt"))
+            for old in owned[: -config.training.keep_checkpoints]:
+                if old != checkpoint and old.stem[5:].isdigit():
+                    old.unlink()
 
         with _stop_signals() as stop:
             save()
@@ -450,10 +600,14 @@ def train(
             while step < config.training.max_steps:
                 if stop["requested"] or (stop_after_steps is not None and step >= stop_after_steps):
                     break
-                index_groups = cursor.group(config.training.batch_size, config.training.accumulation_steps)
+                index_groups = cursor.group(
+                    config.training.batch_size, config.training.accumulation_steps
+                )
                 # Gather on CPU first: divide by actual supervised tokens across
                 # the whole update, not by nominal microbatch or sequence counts.
-                batches = [_batch(inputs.train, indices, torch.device("cpu")) for indices in index_groups]
+                batches = [
+                    _batch(inputs.train, indices, torch.device("cpu")) for indices in index_groups
+                ]
                 counts = [int((batch["labels"][:, 1:] != -100).sum()) for batch in batches]
                 total_tokens = sum(counts)
                 if not total_tokens or any(count == 0 for count in counts):
@@ -479,9 +633,13 @@ def train(
                 step += 1
                 train_loss = weighted_loss
                 metric: dict[str, Any] = {
-                    "step": step, "epoch": cursor.epoch, "cursor": cursor.position,
-                    "tokens": total_tokens, "train_loss": train_loss,
-                    "learning_rate": update_lr, "gradient_norm": float(norm.item()),
+                    "step": step,
+                    "epoch": cursor.epoch,
+                    "cursor": cursor.position,
+                    "tokens": total_tokens,
+                    "train_loss": train_loss,
+                    "learning_rate": update_lr,
+                    "gradient_norm": float(norm.item()),
                 }
                 if step % config.training.eval_every == 0 or step == config.training.max_steps:
                     evaluation = _validation(model, inputs.validation, config, device)
@@ -494,8 +652,10 @@ def train(
                 if step % config.training.save_every == 0:
                     save()
             save()
-            status = "complete" if step == config.training.max_steps else (
-                "interrupted" if stop["requested"] else "paused"
+            status = (
+                "complete"
+                if step == config.training.max_steps
+                else ("interrupted" if stop["requested"] else "paused")
             )
         return TrainResult(checkpoint, status, step, train_loss, validation_loss)
 
@@ -528,30 +688,36 @@ def export(config: RunConfig, checkpoint: str | Path, output_dir: str | Path) ->
     output = Path(output_dir).resolve()
     if output.exists():
         raise FileExistsError(f"export destination already exists: {output}")
-    payload = load_checkpoint(checkpoint)
+    payload, checkpoint_hash = load_checkpoint_with_hash(checkpoint)
     if payload["config"]["model"] != dataclasses.asdict(config.model):
         raise ValueError("export model configuration differs from checkpoint")
-    tokenizer_hash = file_sha256(config.tokenizer_path)
+    tokenizer_bytes = config.tokenizer_path.read_bytes()
+    tokenizer_hash = hashlib.sha256(tokenizer_bytes).hexdigest()
     if tokenizer_hash != payload["identities"]["tokenizer_sha256"]:
         raise ValueError("export tokenizer differs from checkpoint")
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
     try:
         atomic_save(payload["model"], staging / "model.pt")
-        (staging / "model.json").write_bytes(_json_bytes(payload["config"]["model"]))
-        shutil.copyfile(config.tokenizer_path, staging / "tokenizer.json")
+        atomic_write_bytes(_json_bytes(payload["config"]["model"]), staging / "model.json")
+        atomic_write_bytes(tokenizer_bytes, staging / "tokenizer.json")
         provenance = {
-            "format": "clearforge-native-v1", "step": payload["step"],
-            "checkpoint_sha256": file_sha256(checkpoint), "run_id": payload["run_id"],
+            "format": "clearforge-native-v1",
+            "step": payload["step"],
+            "checkpoint_sha256": checkpoint_hash,
+            "run_id": payload["run_id"],
             "identities": payload["identities"],
-            "files": {name: file_sha256(staging / name) for name in ("model.pt", "model.json", "tokenizer.json")},
+            "files": {
+                name: file_sha256(staging / name)
+                for name in ("model.pt", "model.json", "tokenizer.json")
+            },
         }
-        (staging / "provenance.json").write_bytes(_json_bytes(provenance))
+        atomic_write_bytes(_json_bytes(provenance), staging / "provenance.json")
         # A second existence check avoids silently replacing a destination
         # created while the bundle was being serialized.
         if output.exists():
             raise FileExistsError(f"export destination already exists: {output}")
-        staging.rename(output)
+        publish_directory(staging, output)
     finally:
         if staging.exists():
             shutil.rmtree(staging)

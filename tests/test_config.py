@@ -67,3 +67,9 @@ def test_missing_paths_fail(tmp_path):
     config.write_text("")
     with pytest.raises(ValueError, match="missing"):
         load_config(config)
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_checkpoint_retention_requires_positive_integer(value):
+    with pytest.raises(ValueError, match="keep_checkpoints"):
+        TrainConfig(keep_checkpoints=value)

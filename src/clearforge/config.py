@@ -78,6 +78,7 @@ class TrainConfig:
     seed: int = 42
     device: str = "auto"
     precision: str = "bf16"
+    keep_checkpoints: int = 3
     save_every: int = 100
     eval_every: int = 100
     eval_batches: int = 10
@@ -89,6 +90,7 @@ class TrainConfig:
             "batch_size",
             "accumulation_steps",
             "save_every",
+            "keep_checkpoints",
             "eval_every",
             "eval_batches",
         ):
@@ -125,7 +127,6 @@ class RunConfig:
     output_dir: Path
     stage: str = "pretrain"
     init_checkpoint: Path | None = None
-    hf_model: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.model, ModelConfig) or not isinstance(self.training, TrainConfig):
@@ -140,12 +141,6 @@ class RunConfig:
                 object.__setattr__(self, name, Path(value).expanduser().resolve())
             elif name != "init_checkpoint":
                 raise ValueError(f"{name} is required")
-        if self.hf_model is not None and (
-            not isinstance(self.hf_model, str) or not self.hf_model.strip()
-        ):
-            raise ValueError("hf_model must be a nonempty model identifier or path")
-        if self.hf_model is not None and self.init_checkpoint is not None:
-            raise ValueError("hf_model and init_checkpoint are mutually exclusive")
 
     def to_dict(self) -> dict[str, Any]:
         """Return JSON-compatible resolved configuration for provenance."""

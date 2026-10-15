@@ -99,10 +99,30 @@ def publish_latest(checkpoint: str | Path, latest: str | Path) -> None:
 
 def load_checkpoint(path: str | Path) -> dict[str, Any]:
     """Load a **trusted** local checkpoint on CPU; this executes pickle decoding."""
-    payload = torch.load(Path(path), map_location="cpu", weights_only=False)
+    return load_checkpoint_with_hash(path)[0]
+
+
+def load_checkpoint_with_hash(path: str | Path) -> tuple[dict[str, Any], str]:
+    """Hash and decode one opened inode, even if an atomic writer replaces its name."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+        stream.seek(0)
+        payload = torch.load(stream, map_location="cpu", weights_only=False)
     required = {
-        "format_version", "run_id", "config", "identities", "model", "optimizer",
-        "scheduler", "scaler", "step", "rng", "data_cursor", "metrics",
+        "format_version",
+        "run_id",
+        "config",
+        "identities",
+        "model",
+        "optimizer",
+        "scheduler",
+        "scaler",
+        "step",
+        "rng",
+        "data_cursor",
+        "metrics",
     }
     if not isinstance(payload, dict) or not required.issubset(payload):
         raise ValueError("not a complete Clearforge training checkpoint")
@@ -110,4 +130,41 @@ def load_checkpoint(path: str | Path) -> dict[str, Any]:
         raise ValueError("unsupported checkpoint format version")
     if type(payload["step"]) is not int or payload["step"] < 0:
         raise ValueError("invalid checkpoint optimizer step")
-    return payload
+    return payload, digest.hexdigest()
+
+
+def atomic_write_bytes(data: bytes, path: str | Path) -> None:
+    """Replace a small journal or manifest without exposing a truncated prefix."""
+    path = Path(path)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+        _sync_directory(path.parent)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def publish_directory(source: str | Path, destination: str | Path) -> None:
+    """Publish a staged directory with Linux renameat2(RENAME_NOREPLACE).
+
+    A check followed by ordinary rename can replace an unrelated empty directory.
+    Unsupported platforms fail closed rather than weaken this ownership boundary.
+    """
+    import ctypes
+
+    library = ctypes.CDLL(None, use_errno=True)
+    rename = getattr(library, "renameat2", None)
+    if rename is None:
+        raise OSError("atomic bundle publication requires Linux renameat2")
+    rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    rename.restype = ctypes.c_int
+    source, destination = Path(source), Path(destination)
+    if rename(-100, os.fsencode(source), -100, os.fsencode(destination), 1) != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(destination))
+    _sync_directory(destination.parent)
