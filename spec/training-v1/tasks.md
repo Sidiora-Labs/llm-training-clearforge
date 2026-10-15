@@ -29,7 +29,7 @@
   - [ ] 3.2 Documentation and release qualification
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 5.1_
-  - [-] 3.3 Publish data directories without overwriting concurrent destinations
+  - [x] 3.3 Publish data directories without overwriting concurrent destinations
     - Reuse atomic no-replace directory publication
     - Prove a concurrent destination survives publication failure
 
