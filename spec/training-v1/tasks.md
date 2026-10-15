@@ -29,6 +29,9 @@
   - [ ] 3.2 Documentation and release qualification
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 5.1_
+  - [ ] 3.3 Publish data directories without overwriting concurrent destinations
+    - Reuse atomic no-replace directory publication
+    - Prove a concurrent destination survives publication failure
 
 ## Task Dependency Graph
 
@@ -38,7 +41,7 @@
     { "id": 0,  "tasks": ["1.1"] },
     { "id": 1,  "tasks": ["2.1", "2.2", "2.3", "2.4", "2.5"] },
     { "id": 2,  "tasks": ["3.1"] },
-    { "id": 3,  "tasks": ["3.2"] }
+    { "id": 3,  "tasks": ["3.2", "3.3"] }
   ]
 }
 ```
