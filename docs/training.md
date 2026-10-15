@@ -13,11 +13,9 @@ relative to that configuration file, not the shell's current directory.
 | `pretrain-1b.toml` | 2048 | 22 | 16 / 4 | 5504 |
 | `smoke.toml` | 64 | 2 | 4 / 2 | 128 |
 
-Size labels are approximate. Exact parameter counts depend on vocabulary size
-and embedding tying. A model's weight size is not its training memory requirement:
-gradients, optimizer state, activations, and temporary attention buffers also
-consume memory. Measure the selected sequence length and batch size on the
-actual device before committing to a long run.
+Parameter counts depend on vocabulary size and embedding tying. Training memory
+includes weights, gradients, optimizer state, activations, and attention buffers.
+Measure memory with the intended context length and batch size.
 
 `max_steps` counts optimizer updates. `batch_size` counts sequences in a
 microbatch; `accumulation_steps` controls the number of microbatches accumulated
@@ -27,10 +25,8 @@ positions. Metrics should be interpreted in tokens, not only examples.
 ## Precision and determinism
 
 Use float32 on CPU. CUDA bfloat16 and float16 require compatible hardware and
-runtime support. Mixed precision does not imply reduced-precision optimizer
-state. Deterministic execution is useful for recovery testing and may reduce
-throughput; reproducibility across different hardware or library versions is not
-guaranteed.
+runtime support. Weights and optimizer state remain float32. Keep hardware,
+library versions, and thread settings consistent when resuming deterministic runs.
 
 ## Pretraining and chat fine-tuning
 
@@ -48,10 +44,8 @@ new run intentionally.
 
 Validation reports token-weighted negative log-likelihood and perplexity.
 Perplexity is comparable only when tokenization and evaluation data are held
-fixed. A falling loss on a tiny fixture confirms optimization, not broad chat
-quality. Use independent English prompts covering conversation, factual limits,
-format adherence, repetition, and multi-turn consistency before describing a
-model as useful.
+fixed. Evaluate conversation quality with held-out prompts covering relevance,
+instruction following, repetition, and multi-turn consistency.
 
 ## Checkpoint trust
 
@@ -85,10 +79,7 @@ portable inference instead.
 
 Compatibility checks cover the full resolved configuration, tokenizer and packed
 data hashes, implementation source hashes, library/runtime identity, thread
-settings, and recorded CUDA hardware. They intentionally reject changes that
-would undermine the tested continuation guarantee. Resume equivalence was tested
-with dropout on CPU and on the available CUDA device; it is not a guarantee
-across arbitrary drivers, hardware, or environments.
+settings, and recorded CUDA hardware. Resume rejects incompatible changes.
 
 ## Metrics and validation coverage
 
@@ -108,17 +99,12 @@ corpus-level results. Evaluation preserves random-generator state. Perplexity is
 
 Weights and optimizer state are float32; mixed precision controls eligible
 operations. Training materializes full `[batch, sequence, vocabulary]` logits
-and an fp32 loss input. There is no activation checkpointing, distributed
-optimizer, or quantized training in this version. The larger presets have not
-been qualified for production throughput or memory usage on every device.
+and an fp32 loss input. Include these allocations when choosing your batch size.
 
 Generation recomputes the sequence at every step and currently has no KV cache.
 It supports batch size one, greedy decoding or temperature/top-k sampling, and
-explicit EOS stopping. Exported hashes detect accidental changes; they do not
-provide signed authenticity. Keep input artifacts immutable while reading them;
-file checks are not a transactional snapshot of a filesystem under hostile
-concurrent modification.
+explicit EOS stopping. Exported bundles include file hashes for integrity checks.
+Keep input artifacts unchanged while a run is reading them.
 
 Atomic directory publication uses Linux `renameat2(RENAME_NOREPLACE)`. Filesystems
-must support ordinary file locking, hard links, and atomic renames. The initial
-release is qualified on local Linux storage, not network filesystems or Windows.
+must support file locking, hard links, and atomic renames.

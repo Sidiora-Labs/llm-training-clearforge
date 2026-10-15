@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Execute from the repository root after installing Clearforge.
-# Output directories must be new. This fixture checks mechanics, not chat quality.
+# Use new output directories for each run.
 set -euo pipefail
 clearforge data prepare --source examples/pretrain.jsonl --license Apache-2.0 \
   --language en --mode pretrain --output data/smoke-prepared --validation-fraction 0.2

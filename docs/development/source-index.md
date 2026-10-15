@@ -1,13 +1,8 @@
 # Source and verification index
 
-This index maps the documentation evidence ledger to implementation and test
-symbols. It is a navigation aid for maintainers, not a promise that every listed
-class or test helper is a supported public API. Use the [contracts](contracts.md)
-for integration boundaries and [quality gates](quality.md) for acceptance rules.
-
-Private helpers and individual test functions appear because they supply
-evidence for the documented behavior. The test suite executes their assertions;
-this index does not substitute for running it.
+Implementation and test symbols, grouped by module. See the
+[contracts](contracts.md) for component interfaces and [checks](quality.md)
+for development commands.
 
 ## `src/clearforge/cli.py`
 

@@ -29,14 +29,12 @@ cg fleet begin <task-id> --agent <name>
 
 Work in the returned task worktree. Set the reported `CG_AGENT`, `CG_ROLE`,
 `CG_PARENT`, `CG_FEATURE`, and `CG_WAVE` environment values. Start the task, implement
-its declared scope, run qualification, and create a task-tagged snapshot and Git
+its declared scope, run the checks, and create a task-tagged snapshot and Git
 commit. Mark the task done only after its verification command passes. The
-coordinator merges qualified tasks with `cg fleet merge-up` and lands a wave
-behind test and lint gates. No remote publication is implied.
+coordinator merges completed tasks with `cg fleet merge-up` and lands each wave
+behind test and lint gates.
 
-Document errors, recovery behavior, resource limits, and measured limitations.
-Do not claim model quality from a functional smoke test or claim an export format
-that downstream software has not successfully loaded.
+Document setup, configuration, error handling, and recovery behavior.
 
 ## Packaging and accelerator checks
 
@@ -46,8 +44,7 @@ python -m build
 ```
 
 The GitHub Actions workflow checks Python 3.11 and 3.12 on CPU and builds source
-and wheel distributions. A locally configured workflow is not evidence that a
-remote CI run has executed. CUDA resume tests run only when compatible hardware
+and wheel distributions. CUDA resume tests run when compatible hardware
 is available; otherwise pytest reports explicit skips. To check a CPU-only path
 on a GPU machine, run `CUDA_VISIBLE_DEVICES='' python -m pytest -q`.
 

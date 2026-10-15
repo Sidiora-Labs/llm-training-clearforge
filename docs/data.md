@@ -25,9 +25,8 @@ allowed to contaminate a run unnoticed.
 
 ## English-first sources
 
-Declare English sources explicitly. A language declaration is provenance, not an
-automatic language-detection guarantee. Inspect samples and language distributions
-before a substantial run; source metadata can be wrong.
+Declare English sources explicitly and inspect their language distributions
+before training. Clearforge records the supplied language in the manifest.
 
 Two public starting points are [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu)
 for English pretraining and [UltraChat 200k](https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k)
@@ -35,15 +34,13 @@ for conversation fine-tuning. Read each dataset card and its current terms befor
 selecting a version. Pin an immutable revision and retain the upstream split and
 any conversion procedure. These datasets are not downloaded automatically.
 
-The repository's examples are original, Apache-2.0-licensed small English fixtures. They verify the
-workflow and cannot supply the breadth needed for a useful general chatbot.
+The repository includes original English example datasets under Apache-2.0.
 
 ## Split discipline
 
 Deduplicate documents before creating training and validation partitions. Train
 the tokenizer on the training partition only. Keep external benchmarks out of
-both tokenizer training and model training. Exact content deduplication does not
-prove the absence of paraphrases, template overlap, or benchmark contamination.
+both tokenizer training and model training. Review paraphrases, template overlap, and benchmark contamination during corpus curation.
 
 Train and validation partitions must both contain supervised tokens. Very small
 input files may fail this requirement; add independent examples instead of

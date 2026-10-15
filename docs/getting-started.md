@@ -13,9 +13,7 @@ clearforge doctor
 
 For CUDA, install a PyTorch build appropriate to the GPU and driver using the
 [PyTorch installation guide](https://pytorch.org/get-started/locally/).
-`doctor` performs a real CUDA allocation, arithmetic operation, and host readback;
-it reports current free memory rather than assuming the advertised capacity is
-available. Free memory can change while other workloads are running.
+`doctor` checks CUDA access and reports device information and available memory.
 
 All commands below run from the repository root. Configuration paths resolve
 relative to their TOML file. CLI data paths resolve relative to your current
@@ -78,12 +76,10 @@ clearforge chat --model runs/smoke-export --prompt "What is a library?" \
 
 Omit `--prompt` for interactive chat; enter `/quit` to leave. The prompt, retained
 conversation, and requested response budget must fit the model's context. An
-oversized request fails explicitly. The 64-token fixture context is deliberately
-small; it is unsuitable for extended conversations.
+oversized request fails explicitly. The example uses a 64-token context.
 
-This CPU workflow checks mechanics on a tiny corpus. Eight updates of each stage
-do not produce useful chat quality. No network access is needed once dependencies
-are installed.
+The example runs on CPU using the included dataset, with eight updates per stage.
+It runs offline after dependency installation.
 
 ## Larger experiments
 

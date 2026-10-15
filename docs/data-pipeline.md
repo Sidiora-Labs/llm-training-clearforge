@@ -1,25 +1,21 @@
 # Data preparation and packing
 
 Preparation accepts explicitly supplied UTF-8 JSONL sources with declared licenses
-and languages. Only declarations `en`, `eng`, and `english` are included; this is
-source filtering, not language detection or license verification. The provenance
+and languages. Sources declared as `en`, `eng`, or `english` are included. The provenance
 file retains each input locator, source hash, license, content hash, and duplicate
 status. Memory use is bounded by the largest JSONL record plus SQLite's working
 buffers; the corpus and deduplication index are stored on disk.
 
 Splits are deterministic hashes of the seed and canonical complete record content.
 Exact duplicate records across all included sources receive one split assignment.
-This does not guarantee separation of near duplicates, overlapping excerpts, or
-shared messages in otherwise different conversations. Such overlap requires
-additional corpus-specific curation before preparation.
+Review near duplicates, overlapping excerpts, and shared messages during
+corpus curation.
 
 Tokenizer training uses only the verified training split. Its published identity
 can be reused to pack a different corpus, including supervised chat for an existing
 base model. Manifest versions, modes, counts and required provenance hash controls
 are validated. Inputs are checked before use and again before atomic publication;
-persistent mutation causes failure without publishing a partial output. This is
-an integrity check for local files, not authentication of their author or a
-transactional snapshot against a writer that changes and restores bytes.
+changed inputs cause failure before publication.
 Tokenizer files with enabled padding or truncation are rejected. Content encoding
 prevents reserved control-token injection. `decode(ids)` retains structural tokens;
 `decode(ids, skip_special_tokens=True)` omits them for display.

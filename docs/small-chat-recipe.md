@@ -1,8 +1,7 @@
 # Train a small English chat model
 
-The 100M path is intended for an actual language-model experiment: pretrain a
-base model on English text, then teach conversational behavior using supervised
-assistant responses. The offline fixtures are only the installation check.
+Train a 100M base model on English text, then fine-tune it on conversations
+using supervised assistant responses.
 
 ## 1. Assemble the training material
 
@@ -14,13 +13,10 @@ Provide two local UTF-8 JSONL files using the formats in [data preparation](data
 
 Prefer complete, readable documents and concise, accurate assistant answers.
 Inspect language, duplication, broken formatting, answer quality, and domain
-balance before training. A tiny repeated fixture teaches its repeated patterns;
-it does not substitute for a broad corpus. Reserve an independent evaluation
-set that does not enter tokenizer training or either model-training stage.
+balance before training. Reserve a separate evaluation set.
 
-These paths name user-supplied corpora, not bundled downloads. Record their
-upstream revisions and conversion procedures alongside the source files.
-Use the actual license identifier below; a declaration does not grant rights.
+Place your corpora at these paths and record their upstream revisions and
+conversion procedures. Replace `YOUR_SOURCE_LICENSE` with the dataset license.
 
 ## 2. Build pretraining inputs
 
@@ -48,8 +44,8 @@ shifts, masked boundaries, and partial groups. If the corpus is smaller, the
 trainer cycles through it in a new deterministic order each epoch.
 
 Choose `max_steps` before starting. Extending it during exact resume is rejected
-because it changes the cosine schedule. Increasing the budget does not repair
-poor data or ensure useful answers; monitor held-out loss and inspect generations.
+because it changes the cosine schedule. Monitor held-out loss and generations
+as training progresses.
 
 ```bash
 clearforge train configs/pretrain-100m.toml --stop-after-steps 10
@@ -75,9 +71,8 @@ clearforge train configs/sft-100m.toml
 
 The SFT preset initializes from the completed base checkpoint, keeps the same
 model and tokenizer, and starts a fresh optimizer at a lower learning rate.
-Its default 2,500 updates are an initial experiment budget, not a universal
-optimum. Check validation behavior and repetition rather than assuming more
-passes always help. Long conversations are windowed with one-token overlap;
+The default budget is 2,500 updates. Adjust it using validation loss and sample
+responses. Long conversations are windowed with one-token overlap;
 later windows do not retain the complete earlier conversation. Curate examples
 that fit the intended context when full conversational context is necessary.
 
@@ -90,11 +85,6 @@ clearforge export configs/sft-100m.toml --checkpoint runs/sft-100m/latest.pt \
 clearforge chat --model runs/chat-100m-export --device cuda --max-new-tokens 128
 ```
 
-Perplexity is one signal, not a chat-quality score. Evaluate unseen prompts for
-readability, relevant answers, instruction following, repetition, and multi-turn
-consistency. Include tasks representative of the intended application. Record
-failures and compare checkpoints before calling the model usable for that task.
-
-This recipe provides the complete training path. The repository does not yet
-ship a broadly trained, independently evaluated 100M chat checkpoint or claim
-that its default budget guarantees one.
+Evaluate unseen prompts for readability, relevance, instruction following,
+repetition, and multi-turn consistency. Compare checkpoints on tasks from your
+intended application.

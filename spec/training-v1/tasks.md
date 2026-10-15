@@ -38,6 +38,10 @@
     - match established README presentation
     - verify package license metadata and documentation links
     - _Requirements: 1.1, 5.1_
+  - [-] 4.2 Simplify project documentation and remove disclaimer clutter
+    - Remove qualification commentary and repetitive caveats
+    - retain concise setup and operating instructions
+    - _Requirements: 5.1_
 
 ## Task Dependency Graph
 
@@ -48,7 +52,8 @@
     { "id": 1,  "tasks": ["2.1", "2.2", "2.3", "2.4", "2.5"] },
     { "id": 2,  "tasks": ["3.1"] },
     { "id": 3,  "tasks": ["3.2", "3.3"] },
-    { "id": 4,  "tasks": ["4.1"] }
+    { "id": 4,  "tasks": ["4.1"] },
+    { "id": 5,  "tasks": ["4.2"] }
   ]
 }
 ```

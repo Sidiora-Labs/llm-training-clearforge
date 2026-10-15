@@ -155,3 +155,14 @@ reqs = ["1.1", "5.1"]
 do_1 = "Apply Apache-2.0 and Sidiora attribution consistently"
 do_2 = "match established README presentation"
 do_3 = "verify package license metadata and documentation links"
+
+[task.4.2]
+title = "Simplify project documentation and remove disclaimer clutter"
+status = "in_progress"
+wave = 5
+verify_cmd = "python3 scripts/check_presets.py"
+requires = ["4.1"]
+touches = ["README.md", "docs/**", "CONTRIBUTING.md", "CHANGELOG.md", "configs/smoke.toml", "configs/smoke-sft.toml", "scripts/run_smoke.sh"]
+reqs = ["5.1"]
+do_1 = "Remove qualification commentary and repetitive caveats"
+do_2 = "retain concise setup and operating instructions"

@@ -1,4 +1,4 @@
-# A functional CPU check, not a useful pretrained language model.
+# Small CPU example for the getting-started workflow.
 stage = "sft"
 data_dir = "../data/smoke-sft-packed"
 tokenizer_path = "../data/smoke-tokenizer/tokenizer.json"

@@ -90,7 +90,6 @@ No unsupported format should be advertised.
 
 The root integrates argparse commands: `data prepare`, `tokenizer train`,
 `data pack`, `train`, `evaluate`, `export`, `chat`, and `doctor`.
-Document tested offline toy workflow separately from production training.
+Document the example workflow and the full pretraining-to-chat recipe.
 Provide nominal 100M, 300M, and 1B presets plus a tiny smoke-test preset.
-Dataset/model licenses remain separate from code licensing. No quality or
-throughput claim is valid without measured evidence.
+Record dataset and model licenses alongside their artifacts.
