@@ -273,9 +273,11 @@ def test_invalid_generation_controls(model, kwargs):
         model.generate(torch.tensor([[1, 2]]), **({"max_new_tokens": 1} | kwargs))
 
 
-def test_batch_generation_rejected(model):
-    with pytest.raises(ValueError, match="batch size one"):
-        model.generate(torch.tensor([[1], [2]]), max_new_tokens=1)
+def test_equal_length_batch_generation(model):
+    ids = torch.tensor([[1], [2]])
+    output = model.generate(ids, max_new_tokens=1)
+    assert output.shape == (2, 2)
+    assert torch.equal(output[:, :1], ids)
 
 
 def test_nonfinite_generation_rejected_and_mode_restored(model):

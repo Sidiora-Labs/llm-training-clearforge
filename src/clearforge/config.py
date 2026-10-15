@@ -35,6 +35,13 @@ class ModelConfig:
     dropout: float = 0.0
     rope_theta: float = 10000.0
     tie_embeddings: bool = True
+    num_experts: int = 0
+    experts_per_token: int = 2
+    router_aux_loss_coef: float = 0.001
+    yarn_factor: float = 1.0
+    yarn_original_context: int = 2048
+    yarn_beta_fast: float = 32.0
+    yarn_beta_slow: float = 1.0
 
     def __post_init__(self) -> None:
         for name in (
@@ -59,6 +66,17 @@ class ModelConfig:
         if self.dropout == 1.0:
             raise ValueError("dropout must be less than 1")
         _real("rope_theta", self.rope_theta, 1.0)
+        _integer("num_experts", self.num_experts, 0)
+        _integer("experts_per_token", self.experts_per_token)
+        if self.num_experts and self.experts_per_token > self.num_experts:
+            raise ValueError("experts_per_token cannot exceed num_experts")
+        _real("router_aux_loss_coef", self.router_aux_loss_coef, 0.0)
+        _real("yarn_factor", self.yarn_factor, 1.0)
+        _integer("yarn_original_context", self.yarn_original_context, 2)
+        _real("yarn_beta_slow", self.yarn_beta_slow, 0.000001)
+        _real("yarn_beta_fast", self.yarn_beta_fast, self.yarn_beta_slow)
+        if self.yarn_factor > 1 and self.rope_theta <= 1:
+            raise ValueError("YaRN requires rope_theta > 1")
         if type(self.tie_embeddings) is not bool:
             raise ValueError("tie_embeddings must be a boolean")
 
