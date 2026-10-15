@@ -42,7 +42,7 @@ heading = "Clearforge implementation and qualification"
 
 [task.1.1]
 title = "Configuration and project foundation"
-status = "in_progress"
+status = "done"
 wave = 0
 requires = []
 touches = ["pyproject.toml", "src/clearforge/config.py", "tests/test_config.py", "docs/development/contracts.md", "README.md", "src/clearforge/__init__.py", ".gitignore"]

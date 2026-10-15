@@ -4,7 +4,7 @@
 
 ## Tasks
 
-  - [-] 1.1 Configuration and project foundation
+  - [x] 1.1 Configuration and project foundation
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 1.1_
   - [ ] 2.1 Data preparation and tokenizer
