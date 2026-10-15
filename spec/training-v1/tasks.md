@@ -48,7 +48,7 @@
   - [ ] 6.1 Cached decoding and extended model architectures
     - Implement KV cache, streaming and batched sampling, nucleus/repetition controls, optional MoE and YaRN with numerical tests
     - _Requirements: 3.1_
-  - [ ] 6.2 Chat API and browser interface
+  - [-] 6.2 Chat API and browser interface
     - Implement chat completion API with SSE, model listing, and browser conversations with generation controls
     - _Requirements: 5.1_
   - [ ] 6.3 Adapters and post-training objectives
