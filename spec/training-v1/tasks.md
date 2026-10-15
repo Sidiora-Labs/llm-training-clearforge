@@ -45,7 +45,7 @@
   - [-] 5.1 Launch the full 100M English pretraining and chat pipeline
     - Pin and ingest English corpora, train tokenizer, prepare packed datasets, launch durable pretraining and chat fine-tuning with evaluation and export
     - _Requirements: 4.1, 5.1_
-  - [ ] 6.1 Cached decoding and extended model architectures
+  - [x] 6.1 Cached decoding and extended model architectures
     - Implement KV cache, streaming and batched sampling, nucleus/repetition controls, optional MoE and YaRN with numerical tests
     - _Requirements: 3.1_
   - [ ] 6.2 Chat API and browser interface
@@ -54,7 +54,7 @@
   - [ ] 6.3 Adapters and post-training objectives
     - Implement LoRA lifecycle, DPO, distillation, PPO, GRPO and CISPO training paths with real parameter update and objective tests
     - _Requirements: 4.1_
-  - [ ] 6.4 Portable model interchange
+  - [x] 6.4 Portable model interchange
     - Export and import standard Transformers compatible weights and tokenizer templates with logit equivalence checks
     - _Requirements: 5.1_
   - [ ] 6.5 Tool conversations and corpus adapters
