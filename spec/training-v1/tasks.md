@@ -51,7 +51,7 @@
   - [ ] 6.2 Chat API and browser interface
     - Implement chat completion API with SSE, model listing, and browser conversations with generation controls
     - _Requirements: 5.1_
-  - [ ] 6.3 Adapters and post-training objectives
+  - [-] 6.3 Adapters and post-training objectives
     - Implement LoRA lifecycle, DPO, distillation, PPO, GRPO and CISPO training paths with real parameter update and objective tests
     - _Requirements: 4.1_
   - [ ] 6.4 Portable model interchange
