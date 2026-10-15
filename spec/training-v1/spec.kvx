@@ -199,7 +199,7 @@ do_1 = "Implement chat completion API with SSE, model listing, and browser conve
 
 [task.6.3]
 title = "Adapters and post-training objectives"
-status = "in_progress"
+status = "done"
 wave = 6
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_adapters.py tests/test_objectives.py tests/test_posttraining.py"
 requires = ["4.2"]
