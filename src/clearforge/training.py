@@ -18,9 +18,12 @@ import platform
 import random
 import shutil
 import signal
+import sys
 import tempfile
 import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -40,7 +43,7 @@ from .checkpoint import (
     publish_latest,
     restore_rng_state,
 )
-from .config import RunConfig
+from .config import ModelConfig, RunConfig
 from .data import PackedDataset
 from .model import CausalLM
 from .tokenizer import ChatTokenizer
@@ -428,6 +431,7 @@ def _validate_loaded_state(
         warmup_steps=config.training.warmup_steps,
         minimum=config.training.min_lr_ratio,
     )
+    parameter_names = {id(parameter): name for name, parameter in model.named_parameters()}
     for group in optimizer.param_groups:
         if group["lr"] != expected_lr or group["weight_decay"] != config.training.weight_decay:
             raise ValueError("checkpoint optimizer hyperparameters do not match configuration")
@@ -439,7 +443,16 @@ def _validate_loaded_state(
                 if state:
                     raise ValueError("initial checkpoint unexpectedly contains optimizer moments")
                 continue
-            if not state or float(state["step"]) != step:
+            expert = ".experts." in parameter_names[id(parameter)]
+            if expert and not state:
+                continue
+            optimizer_step = float(state["step"]) if state else -1
+            valid_step = (
+                1 <= optimizer_step <= step and optimizer_step.is_integer()
+                if expert
+                else optimizer_step == step
+            )
+            if not valid_step:
                 raise ValueError("checkpoint AdamW step does not match optimizer progress")
             for name in ("exp_avg", "exp_avg_sq"):
                 moment = state[name]
@@ -447,6 +460,21 @@ def _validate_loaded_state(
                     raise ValueError("checkpoint optimizer moment shape or values are invalid")
                 if name == "exp_avg_sq" and (moment < 0).any().item():
                     raise ValueError("checkpoint second moments must be nonnegative")
+
+
+def _enable_activation_checkpointing(model: CausalLM) -> None:
+    from torch.utils.checkpoint import checkpoint
+
+    def wrap(original):
+        def forward(*args, **kwargs):
+            if model.training and torch.is_grad_enabled():
+                return checkpoint(original, *args, use_reentrant=False, **kwargs)
+            return original(*args, **kwargs)
+
+        return forward
+
+    for layer in model.layers:
+        layer.forward = wrap(layer.forward)
 
 
 def train(
@@ -458,16 +486,32 @@ def train(
     pause; it does not alter the configured learning-rate horizon. Changing
     configuration, data, tokenizer, or runtime identity requires a new run.
     """
-    if stop_after_steps is not None and (
-        type(stop_after_steps) is not int or not 0 <= stop_after_steps <= config.training.max_steps
+    if int(os.environ.get("WORLD_SIZE", "1")) > 1 or (
+        torch.distributed.is_initialized() and torch.distributed.get_world_size() > 1
     ):
-        raise ValueError("stop_after_steps must be an optimizer boundary within max_steps")
+        from .distributed import train_distributed
+
+        return train_distributed(config, resume=resume, stop_after_steps=stop_after_steps)
     if config.training.seed >= 2**63:
         raise ValueError("seed must be less than 2**63")
     if config.training.deterministic:
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     device = _device(config)
     inputs = _inputs(config)
+    if config.training.epochs is not None:
+        updates = math.ceil(
+            len(inputs.train) / (config.training.batch_size * config.training.accumulation_steps)
+        )
+        config = dataclasses.replace(
+            config,
+            training=dataclasses.replace(
+                config.training, max_steps=updates * config.training.epochs
+            ),
+        )
+    if stop_after_steps is not None and (
+        type(stop_after_steps) is not int or not 0 <= stop_after_steps <= config.training.max_steps
+    ):
+        raise ValueError("stop_after_steps must be an optimizer boundary within max_steps")
     identities = {**inputs.identities, "runtime": _runtime_identity(device)}
     output = config.output_dir
     payload, loaded_hash = load_checkpoint_with_hash(resume) if resume is not None else (None, None)
@@ -485,18 +529,14 @@ def train(
     else:
         if output.exists():
             raise FileExistsError(f"refusing to overwrite an existing run directory: {output}")
-        if config.stage == "sft":
-            if config.init_checkpoint is None:
-                raise ValueError("a fresh SFT run requires init_checkpoint")
+        if config.stage == "sft" and config.init_checkpoint is None:
+            raise ValueError("a fresh SFT run requires init_checkpoint")
+        if config.init_checkpoint is not None:
             initial, initial_hash = load_checkpoint_with_hash(config.init_checkpoint)
-            if initial["config"]["stage"] != "pretrain":
-                raise ValueError("SFT initialization requires a native pretraining checkpoint")
-            if initial["config"]["model"] != dataclasses.asdict(config.model):
+            if ModelConfig(**initial["config"]["model"]) != config.model:
                 raise ValueError("initial checkpoint model configuration differs")
             if initial["identities"]["tokenizer_sha256"] != identities["tokenizer_sha256"]:
                 raise ValueError("initial checkpoint tokenizer identity differs")
-        elif config.init_checkpoint is not None:
-            raise ValueError("init_checkpoint is for a new SFT run; use resume for pretraining")
     with _determinism(config.training.deterministic), contextlib.ExitStack() as locks:
         if payload:
             locks.enter_context(_run_lock(output))
@@ -511,6 +551,18 @@ def train(
         model = CausalLM(config.model).to(device)
         if payload is not None or initial is not None:
             model.load_state_dict((payload or initial)["model"], strict=True)
+        if config.training.activation_checkpointing:
+            _enable_activation_checkpointing(model)
+        execution_model = (
+            torch.compile(model, backend=config.training.compile_backend)
+            if config.training.compile_model
+            else model
+        )
+        executor = (
+            locks.enter_context(ThreadPoolExecutor(max_workers=config.training.data_workers))
+            if config.training.data_workers
+            else None
+        )
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=config.training.learning_rate,
@@ -597,6 +649,9 @@ def train(
         with _stop_signals() as stop:
             save()
             model.train()
+            started = time.monotonic()
+            initial_step = step
+            processed_tokens = 0
             while step < config.training.max_steps:
                 if stop["requested"] or (stop_after_steps is not None and step >= stop_after_steps):
                     break
@@ -605,9 +660,22 @@ def train(
                 )
                 # Gather on CPU first: divide by actual supervised tokens across
                 # the whole update, not by nominal microbatch or sequence counts.
-                batches = [
-                    _batch(inputs.train, indices, torch.device("cpu")) for indices in index_groups
-                ]
+                if executor is None:
+                    batches = [
+                        _batch(inputs.train, indices, torch.device("cpu"))
+                        for indices in index_groups
+                    ]
+                else:
+                    futures = [
+                        executor.submit(_batch, inputs.train, indices, torch.device("cpu"))
+                        for indices in index_groups
+                    ]
+                    batches = [future.result() for future in futures]
+                if config.training.pin_memory and device.type == "cuda":
+                    batches = [
+                        {key: value.pin_memory() for key, value in batch.items()}
+                        for batch in batches
+                    ]
                 counts = [int((batch["labels"][:, 1:] != -100).sum()) for batch in batches]
                 total_tokens = sum(counts)
                 if not total_tokens or any(count == 0 for count in counts):
@@ -616,9 +684,12 @@ def train(
                 weighted_loss = 0.0
                 update_lr = optimizer.param_groups[0]["lr"]
                 for cpu_batch, count in zip(batches, counts, strict=True):
-                    batch = {key: value.to(device) for key, value in cpu_batch.items()}
+                    batch = {
+                        key: value.to(device, non_blocking=config.training.pin_memory)
+                        for key, value in cpu_batch.items()
+                    }
                     with _autocast(config, device):
-                        loss = model(**batch).loss
+                        loss = execution_model(**batch).loss
                     if loss is None or not torch.isfinite(loss).item():
                         raise FloatingPointError("nonfinite training loss")
                     weighted_loss += float(loss.detach().item()) * count / total_tokens
@@ -651,6 +722,20 @@ def train(
                     os.fsync(stream.fileno())
                 if step % config.training.save_every == 0:
                     save()
+                processed_tokens += total_tokens
+                if config.training.log_every and (
+                    step % config.training.log_every == 0 or step == config.training.max_steps
+                ):
+                    elapsed = max(time.monotonic() - started, 1e-9)
+                    updates_per_second = (step - initial_step) / elapsed
+                    progress = {
+                        "step": step,
+                        "max_steps": config.training.max_steps,
+                        "loss": train_loss,
+                        "tokens_per_second": processed_tokens / elapsed,
+                        "eta_seconds": (config.training.max_steps - step) / updates_per_second,
+                    }
+                    print(json.dumps(progress), file=sys.stderr, flush=True)
             save()
             status = (
                 "complete"
@@ -667,7 +752,7 @@ def evaluate(config: RunConfig, checkpoint: str | Path) -> dict[str, float | int
         device = _device(config)
         inputs = _inputs(config)
         payload = load_checkpoint(checkpoint)
-        if payload["config"]["model"] != dataclasses.asdict(config.model):
+        if ModelConfig(**payload["config"]["model"]) != config.model:
             raise ValueError("evaluation model configuration differs from checkpoint")
         if payload["identities"]["tokenizer_sha256"] != inputs.identities["tokenizer_sha256"]:
             raise ValueError("evaluation tokenizer differs from checkpoint")
@@ -689,7 +774,7 @@ def export(config: RunConfig, checkpoint: str | Path, output_dir: str | Path) ->
     if output.exists():
         raise FileExistsError(f"export destination already exists: {output}")
     payload, checkpoint_hash = load_checkpoint_with_hash(checkpoint)
-    if payload["config"]["model"] != dataclasses.asdict(config.model):
+    if ModelConfig(**payload["config"]["model"]) != config.model:
         raise ValueError("export model configuration differs from checkpoint")
     tokenizer_bytes = config.tokenizer_path.read_bytes()
     tokenizer_hash = hashlib.sha256(tokenizer_bytes).hexdigest()
