@@ -106,3 +106,46 @@ def test_bad_targets_and_repeated_injection(model):
     apply_adapters(model, AdapterConfig(rank=2))
     with pytest.raises(ValueError, match="already"):
         apply_adapters(model, AdapterConfig(rank=2))
+
+
+@pytest.mark.parametrize("distinct_parameter", [False, True])
+def test_shared_head_target_rejected_before_any_model_mutation(model, distinct_parameter):
+    if distinct_parameter:
+        model.lm_head.weight = torch.nn.Parameter(model.token_embedding.weight.detach())
+        assert model.lm_head.weight is not model.token_embedding.weight
+    model.layers[0].attention.q_proj.weight.requires_grad_(False)
+    original_state = copy.deepcopy(model.state_dict())
+    original_parameters = {
+        name: (id(parameter), parameter.requires_grad)
+        for name, parameter in model.named_parameters(remove_duplicate=False)
+    }
+    rng = torch.get_rng_state().clone()
+    with pytest.raises(ValueError, match="shares weight storage"):
+        apply_adapters(model, AdapterConfig(rank=2, targets=("q_proj", "lm_head")))
+    assert not any(isinstance(module, LoRALinear) for module in model.modules())
+    assert not hasattr(model, "_clearforge_adapter_config")
+    assert torch.equal(torch.get_rng_state(), rng)
+    assert original_parameters == {
+        name: (id(parameter), parameter.requires_grad)
+        for name, parameter in model.named_parameters(remove_duplicate=False)
+    }
+    for name, value in original_state.items():
+        assert torch.equal(model.state_dict()[name], value)
+
+
+def test_untied_head_adapter_merge_and_checkpoint_roundtrip(model):
+    from dataclasses import replace
+
+    model = CausalLM(replace(model.config, tie_embeddings=False)).eval()
+    embedding = model.token_embedding.weight.detach().clone()
+    apply_adapters(model, AdapterConfig(rank=2, alpha=4, targets=("lm_head",)))
+    with torch.no_grad():
+        model.lm_head.lora_b.fill_(0.2)
+    ids = torch.tensor([[1, 2, 3, 4]])
+    expected = model(ids).logits.detach()
+    merge_adapters(model)
+    assert torch.equal(model.token_embedding.weight, embedding)
+    torch.testing.assert_close(model(ids).logits, expected, rtol=1e-5, atol=1e-6)
+    restored = CausalLM(model.config).eval()
+    restored.load_state_dict(model.state_dict())
+    torch.testing.assert_close(restored(ids).logits, expected, rtol=1e-5, atol=1e-6)

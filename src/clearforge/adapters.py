@@ -90,6 +90,22 @@ def _targets(model: nn.Module, config: AdapterConfig) -> list[tuple[str, nn.Line
         raise ValueError(f"adapter targets do not match linear modules: {sorted(missing)}")
     if any(config.rank > min(module.in_features, module.out_features) for _, module in found):
         raise ValueError("adapter rank exceeds a target layer dimension")
+    parameters = list(model.named_parameters(remove_duplicate=False))
+    for name, module in found:
+        for other_name, parameter in parameters:
+            if other_name == f"{name}.weight":
+                continue
+            shared = parameter is module.weight
+            if parameter.device == module.weight.device and parameter.device.type != "meta":
+                shared |= (
+                    parameter.untyped_storage().data_ptr()
+                    == module.weight.untyped_storage().data_ptr()
+                )
+            if shared:
+                raise ValueError(
+                    f"adapter target {name} shares weight storage with {other_name}; "
+                    "choose an untied projection"
+                )
     return found
 
 

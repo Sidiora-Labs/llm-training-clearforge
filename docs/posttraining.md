@@ -146,3 +146,7 @@ versioned `--reward-id`. The callable receives prompt messages and response
 text and returns a finite numeric reward. Keep reward code and data fixed when
 resuming. Resume with `--resume OUTPUT/latest.pt`; use `--stop-after-steps N`
 to pause at an optimizer boundary.
+
+Adapter targets must not share parameter storage with another module; in
+particular, adapting `lm_head` requires `tie_embeddings=false`. Default attention
+targets remain supported.
