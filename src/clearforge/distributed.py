@@ -39,6 +39,7 @@ from .training import (
     TrainResult,
     _autocast,
     _batch,
+    _compile_execution,
     _DataCursor,
     _determinism,
     _enable_activation_checkpointing,
@@ -252,11 +253,7 @@ def _train(config, device, resume, stop_after_steps):
             broadcast_buffers=False,
             find_unused_parameters=config.model.num_experts > 1,
         )
-        execution = (
-            torch.compile(ddp, backend=config.training.compile_backend)
-            if config.training.compile_model
-            else ddp
-        )
+        execution = _compile_execution(ddp, config)
         # Separate reproducible dropout streams; restore only after DDP construction.
         if payload:
             _agree(lambda: restore_rng_state(payload["rng_by_rank"][rank]))
