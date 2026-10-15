@@ -10,13 +10,22 @@ from pathlib import Path
 
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 
-from .data import atomic_directory, records, sha256, validate_messages
+from .data import (
+    atomic_directory,
+    read_manifest,
+    records,
+    sha256,
+    validate_messages,
+    verify_unchanged,
+)
 
 SPECIAL_TOKENS = ["<|pad|>", "<|bos|>", "<|eos|>", "<|system|>", "<|user|>", "<|assistant|>"]
 
 
 class ChatTokenizer:
     def __init__(self, tokenizer: Tokenizer) -> None:
+        if tokenizer.truncation is not None or tokenizer.padding is not None:
+            raise ValueError("tokenizer truncation and padding must be disabled")
         self._tokenizer = tokenizer
         self._special = {s: tokenizer.token_to_id(s) for s in SPECIAL_TOKENS}
         if any(v is None for v in self._special.values()):
@@ -41,8 +50,8 @@ class ChatTokenizer:
             raise ValueError("content encoded as a reserved control token")
         return ids
 
-    def decode(self, ids: Sequence[int]) -> str:
-        return self._tokenizer.decode(list(ids), skip_special_tokens=False)
+    def decode(self, ids: Sequence[int], *, skip_special_tokens: bool = False) -> str:
+        return self._tokenizer.decode(list(ids), skip_special_tokens=skip_special_tokens)
 
     def save(self, path: str | Path) -> Path:
         path = Path(path)
@@ -87,7 +96,7 @@ def train_tokenizer(
     if path.name != "train.jsonl":
         raise ValueError("tokenizer input must be the prepared train.jsonl split")
     manifest_path = path.parent / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest, manifest_hash = read_manifest(manifest_path, kind="prepared")
     if sha256(path) != manifest["split_hashes"]["train"]:
         raise ValueError("training split hash mismatch")
     if isinstance(vocab_size, bool) or not isinstance(vocab_size, int) or vocab_size < 262:
@@ -98,7 +107,10 @@ def train_tokenizer(
     def texts():
         for locator, record in records(path):
             if manifest["mode"] == "pretrain":
-                yield record["text"]
+                text = record.get("text")
+                if not isinstance(text, str) or not text.strip():
+                    raise ValueError(f"{locator}: text must be a nonempty string")
+                yield text
             else:
                 for message in validate_messages(record.get("messages"), locator):
                     yield message["content"]
@@ -117,6 +129,7 @@ def train_tokenizer(
         tokenizer.train_from_iterator(texts(), trainer=trainer)
         if sha256(path) != manifest["split_hashes"]["train"]:
             raise ValueError("training split changed during tokenizer training")
+        verify_unchanged(manifest_path, manifest_hash)
         tokenizer.save(str(tmp / "tokenizer.json"))
         (tmp / "manifest.json").write_text(
             json.dumps(
@@ -124,7 +137,7 @@ def train_tokenizer(
                     "format_version": 1,
                     "training_split_sha256": sha256(path),
                     "tokenizer_sha256": sha256(tmp / "tokenizer.json"),
-                    "source_manifest_sha256": sha256(manifest_path),
+                    "source_manifest_sha256": manifest_hash,
                     "vocab_size": tokenizer.get_vocab_size(),
                     "requested_vocab_size": vocab_size,
                     "min_frequency": min_frequency,

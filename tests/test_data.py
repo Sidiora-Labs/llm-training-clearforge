@@ -200,3 +200,93 @@ def test_pretraining_tokenizer_reused_for_new_sft_corpus(tmp_path):
     assert tp.read_bytes() == original_tokenizer_bytes
     manifest = json.loads((packed / "manifest.json").read_text())
     assert manifest["tokenizer_training_split_sha256"] != manifest["source_hashes"]["train"]
+
+
+@pytest.mark.parametrize("seq_length", [2, 17, 4096])
+def test_pretrain_cross_document_targets_and_single_tail(tmp_path, seq_length):
+    source = write(tmp_path / "short.jsonl", [{"text": f"short {i}"} for i in range(30)])
+    prep = prepare_sources(
+        [SourceSpec(source, "CC0")],
+        tmp_path / "prep",
+        validation_fraction=0,
+        seed=7,
+        mode="pretrain",
+    )
+    tp = train_tokenizer(prep / "train.jsonl", tmp_path / "tok", vocab_size=262)
+    tok = ChatTokenizer.load(tp)
+    out = pack_dataset(prep, tp, tmp_path / "packed", seq_length=seq_length, mode="pretrain")
+    rows = PackedDataset(out, "train")
+    expected = []
+    for line in (prep / "train.jsonl").read_text().splitlines():
+        expected.extend(tok.encode(json.loads(line)["text"]) + [tok.eos_id])
+    actual = [v for row in rows for v in row["labels"].tolist()[1:] if v != -100]
+    assert actual == expected
+    if seq_length > 2:
+        assert len(rows) < 30
+    assert sum(tok.pad_id in row["input_ids"].tolist() for row in rows) <= 1
+    assert all(tok.bos_id not in row["labels"].tolist() for row in rows)
+
+
+@pytest.mark.parametrize(
+    "target", ["train.jsonl", "manifest.json", "tokenizer.json", "tokenizer_manifest"]
+)
+def test_pack_detects_inputs_mutated_during_read(tmp_path, monkeypatch, target):
+    import clearforge.data as data
+
+    source = write(tmp_path / "input.jsonl", [{"text": "sample"}])
+    prep = prepare_sources(
+        [SourceSpec(source, "CC0")],
+        tmp_path / "prep",
+        validation_fraction=0,
+        seed=1,
+        mode="pretrain",
+    )
+    tp = train_tokenizer(prep / "train.jsonl", tmp_path / "tok", vocab_size=262)
+    original = data.records
+    changed = False
+
+    def mutate(path):
+        nonlocal changed
+        if not changed:
+            changed = True
+            path_to_change = (
+                tp
+                if target == "tokenizer.json"
+                else tp.parent / "manifest.json"
+                if target == "tokenizer_manifest"
+                else prep / target
+            )
+            with path_to_change.open("a") as f:
+                f.write(" " if target != "train.jsonl" else json.dumps({"text": "injected"}) + "\n")
+        yield from original(path)
+
+    monkeypatch.setattr(data, "records", mutate)
+    with pytest.raises(ValueError, match="changed|count mismatch"):
+        pack_dataset(prep, tp, tmp_path / "packed", seq_length=17, mode="pretrain")
+    assert not (tmp_path / "packed").exists()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("format_version", True),
+        ("mode", "unknown"),
+        ("split_hashes", []),
+        ("document_counts", {"train": True, "validation": 0}),
+    ],
+)
+def test_manifest_control_validation(tmp_path, field, value):
+    source = write(tmp_path / "input.jsonl", [{"text": "sample"}])
+    prep = prepare_sources(
+        [SourceSpec(source, "CC0")],
+        tmp_path / "prep",
+        validation_fraction=0,
+        seed=1,
+        mode="pretrain",
+    )
+    manifest = prep / "manifest.json"
+    data = json.loads(manifest.read_text())
+    data[field] = value
+    manifest.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="manifest.json"):
+        train_tokenizer(prep / "train.jsonl", tmp_path / "tok", vocab_size=262)

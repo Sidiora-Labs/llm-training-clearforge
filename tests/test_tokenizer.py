@@ -101,3 +101,43 @@ def test_reserved_literals_in_training_are_not_injected(tmp_path):
     tok = ChatTokenizer.load(path)
     assert tok.decode(tok.encode(text)) == text
     assert not set(tok.encode(text)).intersection(tok._special.values())
+
+
+def test_decode_skip_special_tokens(tokenizer):
+    tok, _, _ = tokenizer
+    ids = [tok.bos_id] + tok.encode("hello") + [tok.eos_id]
+    assert tok.decode(ids, skip_special_tokens=True) == "hello"
+    assert tok.decode(ids) == "<|bos|>hello<|eos|>"
+
+
+@pytest.mark.parametrize("setting", ["truncation", "padding"])
+def test_persisted_lossy_settings_rejected(tokenizer, tmp_path, setting):
+    from tokenizers import Tokenizer
+
+    _, path, _ = tokenizer
+    raw = Tokenizer.from_file(str(path))
+    if setting == "truncation":
+        raw.enable_truncation(max_length=2)
+    else:
+        raw.enable_padding(length=30)
+    changed = tmp_path / "changed.json"
+    raw.save(str(changed))
+    with pytest.raises(ValueError, match="truncation and padding"):
+        ChatTokenizer.load(changed)
+
+
+def test_tokenizer_training_manifest_mutation(tokenizer, tmp_path, monkeypatch):
+    import clearforge.tokenizer as module
+
+    _, _, prepared = tokenizer
+    original = module.records
+
+    def mutate(path):
+        with (prepared / "manifest.json").open("a") as f:
+            f.write(" ")
+        yield from original(path)
+
+    monkeypatch.setattr(module, "records", mutate)
+    with pytest.raises(ValueError, match="changed during"):
+        train_tokenizer(prepared / "train.jsonl", tmp_path / "new_tok", vocab_size=262)
+    assert not (tmp_path / "new_tok").exists()
