@@ -20,7 +20,7 @@
     - Define size presets and reproducible operating instructions
     - distinguish smoke data from production quality
     - _Requirements: 6.1_
-  - [-] 2.5 Command-line interface and native inference
+  - [x] 2.5 Command-line interface and native inference
     - Implement strict CLI commands and verified native inference bundles
     - _Requirements: 5.1_
   - [ ] 3.1 CLI presets and end-to-end qualification
