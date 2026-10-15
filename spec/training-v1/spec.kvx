@@ -169,7 +169,7 @@ do_2 = "retain concise setup and operating instructions"
 
 [task.5.1]
 title = "Launch the full 100M English pretraining and chat pipeline"
-status = "in_progress"
+status = "done"
 wave = 5
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python scripts/train_100m.py --verify-launch --root /home/ubuntu/clearforge/runs/english-100m"
 requires = ["4.2"]

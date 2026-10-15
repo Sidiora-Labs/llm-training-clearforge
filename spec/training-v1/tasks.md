@@ -42,7 +42,7 @@
     - Remove qualification commentary and repetitive caveats
     - retain concise setup and operating instructions
     - _Requirements: 5.1_
-  - [-] 5.1 Launch the full 100M English pretraining and chat pipeline
+  - [x] 5.1 Launch the full 100M English pretraining and chat pipeline
     - Pin and ingest English corpora, train tokenizer, prepare packed datasets, launch durable pretraining and chat fine-tuning with evaluation and export
     - _Requirements: 4.1, 5.1_
   - [x] 6.1 Cached decoding and extended model architectures
