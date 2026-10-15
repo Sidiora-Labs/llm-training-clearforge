@@ -46,6 +46,7 @@ targets = ["README.md", "docs/**", "CONTRIBUTING.md", "CHANGELOG.md"]
 heading = "Clearforge implementation and qualification"
 
 [task.1.1]
+symbols = ["ModelConfig", "RunConfig", "TrainConfig", "load_config", "test_checkpoint_retention_requires_positive_integer", "test_missing_paths_fail", "test_paths_are_relative_to_config_not_process", "test_reject_invalid_dimensions", "test_reject_invalid_training", "test_unknown_keys_fail", "to_dict"]
 title = "Configuration and project foundation"
 status = "done"
 wave = 0
@@ -56,16 +57,18 @@ do_1 = "Implement the contract and adversarial tests; preserve truthful document
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_config.py"
 
 [task.2.1]
+symbols = ["ChatTokenizer", "PackedDataset", "SourceSpec", "atomic_directory", "decode", "digest", "encode", "encode_chat", "load", "mutate", "pack_dataset", "prepare_sources", "read_manifest", "records", "save", "sha256", "test_assistant_mask_and_generation", "test_content_disjoint_deterministic_multi_source", "test_decode_skip_special_tokens", "test_invalid_utf8_and_source_license_lineage", "test_language_declarations_and_license", "test_malformed_locator_atomic_failure", "test_manifest_control_validation", "test_no_supervision_fails_and_tokenizer_integrity", "test_pack_detects_inputs_mutated_during_read", "test_persisted_lossy_settings_rejected", "test_pretrain_cross_document_targets_and_single_tail", "test_pretrain_preserves_all_tokens_and_detects_tampering", "test_pretraining_tokenizer_reused_for_new_sft_corpus", "test_reserved_literals_in_training_are_not_injected", "test_roles_rejected", "test_sft_tails_masks_memmap_and_exclusions", "test_tokenizer_training_does_not_read_validation", "test_tokenizer_training_manifest_mutation", "test_train_only_integrity_and_collision", "test_whitespace_unicode_and_control_literals_roundtrip", "texts", "tokenizer", "train_tokenizer", "validate_messages", "verify_unchanged", "write", "write_window"]
 title = "Data preparation and tokenizer"
 status = "done"
 wave = 1
 requires = ["1.1"]
-touches = ["src/clearforge/data.py", "src/clearforge/tokenizer.py", "tests/test_data.py", "tests/test_tokenizer.py"]
+touches = ["src/clearforge/data.py", "src/clearforge/tokenizer.py", "tests/test_data.py", "tests/test_tokenizer.py", "docs/data-pipeline.md"]
 reqs = ["2.1"]
 do_1 = "Implement the contract and adversarial tests; preserve truthful documentation and evidence."
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_data.py tests/test_tokenizer.py"
 
 [task.2.2]
+symbols = ["CausalAttention", "CausalLM", "CausalLMOutput", "DecoderBlock", "RMSNorm", "RotaryEmbedding", "SwiGLU", "configuration", "forward", "generate", "model", "parameter_count", "test_aligned_labels_shift_exactly_once", "test_attention_dropout_itself_is_disabled_in_eval", "test_attention_matches_explicit_causal_grouped_reference", "test_batch_generation_rejected", "test_config_is_revalidated_before_allocation", "test_cpu_bfloat16_autocast_backward", "test_device_mismatch_rejected", "test_dropout_active_in_training_and_disabled_in_eval", "test_eos_generation_and_existing_eos", "test_finite_nonzero_gradients_reach_every_parameter", "test_forward_and_tied_parameter_accounting", "test_future_tokens_cannot_change_prefix_logits", "test_generation_budget_and_zero_tokens", "test_greedy_generation_matches_manual_full_context_and_restores_modes", "test_ignored_batch_row_does_not_dilute_token_mean", "test_invalid_generation_controls", "test_invalid_inputs_fail_before_model_execution", "test_invalid_labels_and_no_shifted_supervision", "test_low_temperature_is_numerically_valid", "test_masked_right_padded_loss_matches_token_reference", "test_nonfinite_generation_rejected_and_mode_restored", "test_residual_initialization_is_scaled_and_reproducible", "test_rmsnorm_numeric_reference_and_bfloat16", "test_rotary_positions_and_length_independent_coordinates", "test_seeded_sampling_and_top_k_one", "test_single_token_inference_but_not_training"]
 title = "Causal decoder and generation"
 status = "done"
 wave = 1
@@ -76,6 +79,7 @@ do_1 = "Implement the contract and adversarial tests; preserve truthful document
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_model.py"
 
 [task.2.3]
+symbols = ["ModelConfig", "RunConfig", "TrainConfig", "TrainResult", "atomic_save", "atomic_write_bytes", "capture_rng_state", "config", "draw", "equal_tree", "evaluate", "export", "file_sha256", "group", "learning_rate_factor", "load_checkpoint", "load_checkpoint_with_hash", "load_config", "publish_directory", "publish_latest", "request_stop", "restore_rng_state", "save", "state_dict", "test_atomic_failure_preserves_previous_and_cleans_temporary", "test_checkpoint_retention_requires_positive_integer", "test_corrupt_state_rejected_before_journal_mutation", "test_cuda_mixed_precision_exact_resume", "test_directory_publication_never_clobbers_empty_destination", "test_evaluation_preserves_rng_and_export_matches_native_model", "test_exact_resume_with_dropout_rng_and_metrics", "test_latest_is_atomic_hardlink_and_old_checkpoint_survives", "test_missing_paths_fail", "test_paths_are_relative_to_config_not_process", "test_preflight_collision_identity_and_run_lock", "test_reject_invalid_dimensions", "test_reject_invalid_training", "test_rng_roundtrip_all_generators", "test_sft_transfers_weights_but_resets_optimizer_and_data", "test_stop_signal_and_cosine_boundaries", "test_token_weighted_accumulation_partial_epoch", "test_unknown_keys_fail", "to_dict", "train"]
 title = "Training checkpoints and evaluation"
 status = "done"
 wave = 1
@@ -86,11 +90,12 @@ do_1 = "Implement the contract and adversarial tests; preserve truthful document
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_training.py tests/test_checkpoint.py"
 
 [task.3.1]
+symbols = ["bundle", "main", "run", "test_bundle_loads_real_weights", "test_bundle_rejects_unlisted_or_traversal_files", "test_bundle_tamper_rejected", "test_device_rejects_unsupported_values", "test_doctor_counts_presets_without_allocation", "test_help_does_not_require_training_module", "test_inconsistent_tied_weights_rejected", "test_missing_bundle_gives_concise_error", "test_module_entrypoint", "test_nonfinite_weights_rejected", "test_offline_pretrain_resume_sft_export_chat", "test_threads_are_positive", "test_unknown_bundle_version_rejected"]
 title = "CLI presets and end-to-end qualification"
-status = "pending"
+status = "done"
 wave = 2
 requires = ["2.1", "2.2", "2.3"]
-touches = ["src/clearforge/cli.py", "src/clearforge/__main__.py", "configs/*.toml", "examples/*.jsonl", "tests/test_cli.py", "scripts/*"]
+touches = ["src/clearforge/cli.py", "src/clearforge/__main__.py", "configs/*.toml", "examples/*.jsonl", "tests/test_cli.py", "tests/test_cli_unit.py", "scripts/*"]
 reqs = ["5.1"]
 do_1 = "Implement the contract and adversarial tests; preserve truthful documentation and evidence."
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_cli.py"
@@ -117,6 +122,7 @@ do_1 = "Define size presets and reproducible operating instructions"
 do_2 = "distinguish smoke data from production quality"
 
 [task.2.5]
+symbols = ["bundle", "main", "test_bundle_loads_real_weights", "test_bundle_rejects_unlisted_or_traversal_files", "test_bundle_tamper_rejected", "test_device_rejects_unsupported_values", "test_help_does_not_require_training_module", "test_inconsistent_tied_weights_rejected", "test_missing_bundle_gives_concise_error", "test_nonfinite_weights_rejected", "test_threads_are_positive", "test_unknown_bundle_version_rejected"]
 title = "Command-line interface and native inference"
 status = "done"
 wave = 1

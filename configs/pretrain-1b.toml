@@ -1,7 +1,7 @@
 # Nominal size; inspect the exact parameter count with clearforge doctor.
 stage = "pretrain"
 data_dir = "../data/packed-pretrain"
-tokenizer_path = "../data/tokenizer"
+tokenizer_path = "../data/tokenizer/tokenizer.json"
 output_dir = "../runs/pretrain-1b"
 
 [model]
