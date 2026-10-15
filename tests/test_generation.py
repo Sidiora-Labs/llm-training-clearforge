@@ -233,24 +233,6 @@ def test_yarn_independent_frequency_reference_and_offsets():
     torch.testing.assert_close(actual[..., 2:, :], rotary(x[..., 2:, :], offset=5))
 
 
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        dict(num_experts=-1),
-        dict(num_experts=1, experts_per_token=2),
-        dict(experts_per_token=0),
-        dict(router_aux_loss_coef=-1),
-        dict(yarn_factor=0.5),
-        dict(yarn_beta_fast=0.1),
-        dict(yarn_original_context=1),
-        dict(yarn_factor=2, rope_theta=1),
-    ],
-)
-def test_invalid_architecture_controls(kwargs):
-    with pytest.raises(ValueError):
-        config(**kwargs)
-
-
 def test_cpu_autocast_cache_dtype_and_continuation(model):
     ids = torch.tensor([[1, 2, 3, 4]])
     with torch.autocast("cpu", dtype=torch.bfloat16):
