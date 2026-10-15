@@ -10,12 +10,16 @@
   - [ ] 2.1 Data preparation and tokenizer
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 2.1_
-  - [ ] 2.2 Causal decoder and generation
+  - [x] 2.2 Causal decoder and generation
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 3.1_
   - [-] 2.3 Training checkpoints and evaluation
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 4.1_
+  - [x] 2.4 Presets and operating documentation
+    - Define size presets and reproducible operating instructions
+    - distinguish smoke data from production quality
+    - _Requirements: 6.1_
   - [ ] 3.1 CLI presets and end-to-end qualification
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 5.1_
@@ -29,7 +33,7 @@
 {
   "waves": [
     { "id": 0,  "tasks": ["1.1"] },
-    { "id": 1,  "tasks": ["2.1", "2.2", "2.3"] },
+    { "id": 1,  "tasks": ["2.1", "2.2", "2.3", "2.4"] },
     { "id": 2,  "tasks": ["3.1"] },
     { "id": 3,  "tasks": ["3.2"] }
   ]
