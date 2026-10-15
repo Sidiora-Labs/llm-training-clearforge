@@ -20,6 +20,9 @@
     - Define size presets and reproducible operating instructions
     - distinguish smoke data from production quality
     - _Requirements: 6.1_
+  - [x] 2.5 Command-line interface and native inference
+    - Implement strict CLI commands and verified native inference bundles
+    - _Requirements: 5.1_
   - [ ] 3.1 CLI presets and end-to-end qualification
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 5.1_
@@ -33,7 +36,7 @@
 {
   "waves": [
     { "id": 0,  "tasks": ["1.1"] },
-    { "id": 1,  "tasks": ["2.1", "2.2", "2.3", "2.4"] },
+    { "id": 1,  "tasks": ["2.1", "2.2", "2.3", "2.4", "2.5"] },
     { "id": 2,  "tasks": ["3.1"] },
     { "id": 3,  "tasks": ["3.2"] }
   ]
