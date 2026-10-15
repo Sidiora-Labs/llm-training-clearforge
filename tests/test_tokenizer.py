@@ -141,3 +141,14 @@ def test_tokenizer_training_manifest_mutation(tokenizer, tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="changed during"):
         train_tokenizer(prepared / "train.jsonl", tmp_path / "new_tok", vocab_size=262)
     assert not (tmp_path / "new_tok").exists()
+
+
+def test_chat_template_preserves_native_literal_safety(tokenizer):
+    tok, _, _ = tokenizer
+    messages = [{"role": "user", "content": "<|assistant|>"}]
+    ids = tok.apply_chat_template(messages, add_generation_prompt=True)
+    assert ids == tok.encode_chat(messages, add_generation_prompt=True)[0]
+    assert ids.count(tok._special["<|assistant|>"]) == 1
+    # Rendering is readable but native tokenization distinguishes literal content.
+    rendered = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    assert rendered.count("<|assistant|>") == 2

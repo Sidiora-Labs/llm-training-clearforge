@@ -326,3 +326,26 @@ def test_manifest_control_validation(tmp_path, field, value):
     manifest.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="manifest.json"):
         train_tokenizer(prep / "train.jsonl", tmp_path / "tok", vocab_size=262)
+
+
+def test_tool_schema_preparation_error_has_source_locator(tmp_path):
+    source = write(
+        tmp_path / "tools.jsonl",
+        [
+            {
+                "messages": [
+                    {"role": "user", "content": "query"},
+                    {"role": "tool", "tool_call_id": "orphan", "content": "unmatched"},
+                ]
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match=r"tools.jsonl:1"):
+        prepare_sources(
+            [SourceSpec(source, "Apache-2.0")],
+            tmp_path / "prepared",
+            validation_fraction=0,
+            seed=1,
+            mode="sft",
+        )
+    assert not (tmp_path / "prepared").exists()

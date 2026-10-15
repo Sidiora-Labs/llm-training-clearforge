@@ -48,7 +48,7 @@
   - [x] 6.1 Cached decoding and extended model architectures
     - Implement KV cache, streaming and batched sampling, nucleus/repetition controls, optional MoE and YaRN with numerical tests
     - _Requirements: 3.1_
-  - [ ] 6.2 Chat API and browser interface
+  - [x] 6.2 Chat API and browser interface
     - Implement chat completion API with SSE, model listing, and browser conversations with generation controls
     - _Requirements: 5.1_
   - [ ] 6.3 Adapters and post-training objectives
@@ -57,7 +57,7 @@
   - [x] 6.4 Portable model interchange
     - Export and import standard Transformers compatible weights and tokenizer templates with logit equivalence checks
     - _Requirements: 5.1_
-  - [ ] 6.5 Tool conversations and corpus adapters
+  - [x] 6.5 Tool conversations and corpus adapters
     - Implement tool call and result schemas, reasoning fields, chat templates, preference and RL prompt adapters
     - _Requirements: 2.1_
   - [ ] 6.6 Training throughput and distributed execution
