@@ -63,7 +63,7 @@
   - [x] 6.6 Training throughput and distributed execution
     - Add flexible weight initialization, compile, activation checkpointing, loading controls, progress and distributed training
     - _Requirements: 4.1_
-  - [-] 6.7 Integrate advanced commands and evaluations
+  - [x] 6.7 Integrate advanced commands and evaluations
     - Integrate commands, rollout backends and tool episodes, evaluation suites, tokenizer diagnostics and optional dependencies
     - _Requirements: 5.1_
 

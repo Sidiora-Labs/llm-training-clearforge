@@ -239,7 +239,7 @@ do_1 = "Add flexible weight initialization, compile, activation checkpointing, l
 
 [task.6.7]
 title = "Integrate advanced commands and evaluations"
-status = "in_progress"
+status = "done"
 wave = 8
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q"
 requires = ["6.2", "6.3", "6.4", "6.5", "6.6"]
