@@ -52,6 +52,7 @@ CUDA setup, and moving to larger experiments.
 | `configs/smoke.toml` | 106,816 | 64 | Offline pretraining qualification |
 | `configs/smoke-sft.toml` | 106,816 | 64 | Offline chat fine-tuning qualification |
 | `configs/pretrain-100m.toml` | 100,682,496 | 1,024 | Small pretraining experiment |
+| `configs/sft-100m.toml` | 100,682,496 | 1,024 | Chat fine-tuning of the 100M base |
 | `configs/pretrain-300m.toml` | 304,137,216 | 1,024 | Larger pretraining experiment |
 | `configs/pretrain-1b.toml` | 1,041,852,416 | 1,024 | Billion-parameter experiment |
 
@@ -63,6 +64,7 @@ actual CUDA access and count parameters without allocating that model.
 ## Documentation
 
 - [Getting started](docs/getting-started.md): executable pretraining and chat workflow.
+- [Small chat training recipe](docs/small-chat-recipe.md): a complete 100M training path.
 - [Data preparation](docs/data.md): formats, provenance, licensing, and split discipline.
 - [Data pipeline details](docs/data-pipeline.md): integrity checks and packing boundaries.
 - [Training and recovery](docs/training.md): optimization, precision, checkpoints, and limits.

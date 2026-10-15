@@ -1,6 +1,6 @@
 # Data preparation
 
-Clearforge accepts UTF-8 JSONL. Each nonempty line is a complete record. Treat
+Clearforge accepts UTF-8 JSONL. Each line must be a complete JSON object; blank lines are rejected. Treat
 source preparation as a reproducible build: retain the source version, declared
 license, language, hashes, filtering counts, tokenizer, and packed-data manifest.
 

@@ -32,6 +32,7 @@
   - [x] 3.3 Publish data directories without overwriting concurrent destinations
     - Reuse atomic no-replace directory publication
     - Prove a concurrent destination survives publication failure
+    - _Requirements: 2.1_
 
 ## Task Dependency Graph
 

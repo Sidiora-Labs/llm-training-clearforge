@@ -6,7 +6,7 @@ Initial development of the English-first native training workflow, including
 strict configuration, corpus preparation, byte-level tokenization, causal decoder
 models, restartable optimization, evaluation, and portable native export.
 
-The initial implementation includes five validated presets, original offline
+The initial implementation includes six validated presets, original offline
 fixtures, an executable pretraining-to-chat workflow, bounded checkpoint
 retention, corruption preflight checks, and native-bundle integrity verification.
 
