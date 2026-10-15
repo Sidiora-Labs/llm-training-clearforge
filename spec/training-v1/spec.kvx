@@ -38,7 +38,7 @@ include = "../../docs/development/contracts.md"
 
 [documentation]
 mode = "manual"
-status = "in_progress"
+status = "done"
 audiences = ["user", "developer"]
 targets = ["README.md", "docs/**", "CONTRIBUTING.md", "CHANGELOG.md"]
 
