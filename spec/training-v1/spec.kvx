@@ -115,3 +115,13 @@ touches = ["configs/*.toml", "docs/getting-started.md", "docs/data.md", "docs/tr
 reqs = ["6.1"]
 do_1 = "Define size presets and reproducible operating instructions"
 do_2 = "distinguish smoke data from production quality"
+
+[task.2.5]
+title = "Command-line interface and native inference"
+status = "in_progress"
+wave = 1
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_cli_unit.py"
+requires = ["1.1"]
+touches = ["src/clearforge/cli.py", "src/clearforge/__main__.py", "tests/test_cli_unit.py"]
+reqs = ["5.1"]
+do_1 = "Implement strict CLI commands and verified native inference bundles"
