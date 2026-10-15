@@ -13,7 +13,7 @@
   - [ ] 2.2 Causal decoder and generation
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 3.1_
-  - [ ] 2.3 Training checkpoints and evaluation
+  - [-] 2.3 Training checkpoints and evaluation
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 4.1_
   - [ ] 3.1 CLI presets and end-to-end qualification
