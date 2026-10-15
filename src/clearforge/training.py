@@ -477,6 +477,18 @@ def _enable_activation_checkpointing(model: CausalLM) -> None:
         layer.forward = wrap(layer.forward)
 
 
+def _compile_execution(model, config: RunConfig):
+    """Keep deterministic random draws on native generators under Inductor."""
+    if not config.training.compile_model:
+        return model
+    options = (
+        {"fallback_random": True}
+        if (config.training.deterministic and config.training.compile_backend == "inductor")
+        else None
+    )
+    return torch.compile(model, backend=config.training.compile_backend, options=options)
+
+
 def train(
     config: RunConfig, *, resume: str | Path | None = None, stop_after_steps: int | None = None
 ) -> TrainResult:
@@ -553,11 +565,7 @@ def train(
             model.load_state_dict((payload or initial)["model"], strict=True)
         if config.training.activation_checkpointing:
             _enable_activation_checkpointing(model)
-        execution_model = (
-            torch.compile(model, backend=config.training.compile_backend)
-            if config.training.compile_model
-            else model
-        )
+        execution_model = _compile_execution(model, config)
         executor = (
             locks.enter_context(ThreadPoolExecutor(max_workers=config.training.data_workers))
             if config.training.data_workers

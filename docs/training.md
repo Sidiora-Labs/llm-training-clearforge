@@ -172,3 +172,22 @@ optimizer boundary. Setup, input validation, journal and checkpoint errors are
 reported collectively. Abrupt process or collective failures are handled by the
 process-group timeout and torchrun worker supervision; recovery uses the last
 durable checkpoint.
+
+### Compilation prerequisites
+
+The `inductor` backend builds native extensions. Install a C/C++ compiler and
+headers matching the active Python interpreter before enabling it. On Ubuntu:
+
+```bash
+sudo apt-get install build-essential python3-dev
+```
+
+CUDA builds also use the Triton package installed with PyTorch. Compilation
+happens on the first batch; subsequent batches reuse the compiled kernels.
+Checkpoint files retain ordinary native parameter names.
+
+For deterministic Inductor runs, Clearforge keeps random operations on native
+PyTorch generators (`fallback_random=True`) while compiling the rest of the
+model. This preserves dropout RNG across checkpoint/restart, including activation
+checkpoint recomputation. Compiled execution requires a working C++ toolchain and
+Python development headers; the ordinary uncompiled trainer does not need them.

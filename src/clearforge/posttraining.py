@@ -17,7 +17,7 @@ from torch import nn
 
 from .adapters import AdapterConfig, _fingerprint, apply_adapters, merge_adapters
 from .checkpoint import atomic_save, atomic_write_bytes, capture_rng_state, restore_rng_state
-from .data import atomic_directory, validate_messages
+from .data import adapt_preference, adapt_rollout, atomic_directory, validate_messages
 from .model import CausalLM
 from .objectives import (
     clipped_value_loss,
@@ -30,6 +30,7 @@ from .objectives import (
     token_log_probabilities,
 )
 from .tokenizer import ChatTokenizer
+from .tools import serialize_messages
 from .training import _DataCursor, _determinism, _run_lock, _runtime_identity, _seed, _stop_signals
 
 
@@ -124,48 +125,33 @@ def _records(data):
 
 
 def _prompt(row):
-    prompt = row.get("prompt", row.get("messages"))
-    if isinstance(prompt, str):
-        prompt = [{"role": "user", "content": prompt}]
-    prompt = validate_messages(prompt)
-    if prompt[-1]["role"] != "user":
-        raise ValueError("prompt must end with a user message")
-    return prompt
+    # Preserve schemas as part of the prompt object through online generation.
+    fields = {
+        k: v for k, v in row.items() if k in {"prompt", "messages", "tools", "expected", "gt"}
+    }
+    return adapt_rollout(fields)
 
 
 def _encode(row, tokenizer, objective):
+    tools = row.get("tools")
     if objective in {"sft", "lora", "distillation"}:
-        return tokenizer.encode_chat(validate_messages(row.get("messages")))
+        return tokenizer.encode_chat(
+            validate_messages(row.get("messages"), tools=tools), tools=tools
+        )
     if objective == "dpo":
-        chosen, rejected = row.get("chosen"), row.get("rejected")
-        if isinstance(chosen, list) and isinstance(rejected, list):
-            chosen, rejected = validate_messages(chosen), validate_messages(rejected)
-            if (
-                chosen[:-1] != rejected[:-1]
-                or chosen[-1]["role"] != "assistant"
-                or rejected[-1]["role"] != "assistant"
-            ):
-                raise ValueError(
-                    "preference conversations must share a prefix and end in assistant responses"
-                )
-            prompt = _prompt({"prompt": chosen[:-1]})
-            chosen, rejected = chosen[-1]["content"], rejected[-1]["content"]
-        else:
-            prompt = _prompt(row)
-        if (
-            not isinstance(chosen, str)
-            or not isinstance(rejected, str)
-            or not chosen.strip()
-            or not rejected.strip()
-        ):
-            raise ValueError("chosen and rejected must be nonempty responses")
-        prefix, _ = tokenizer.encode_chat(prompt, add_generation_prompt=True)
+        fields = {k: v for k, v in row.items() if k in {"prompt", "chosen", "rejected", "tools"}}
+        pair = adapt_preference(fields)
+        prompt = pair["chosen"][:-1]
+        prefix, _ = tokenizer.encode_chat(prompt, tools=tools, add_generation_prompt=True)
 
-        def response(text):
+        def response(messages):
+            # Serialize the full final assistant, including structured calls/reasoning.
+            # Historical assistant turns remain context-only for preference scoring.
+            text = serialize_messages(messages, tools=tools)[-1][1]
             completion = tokenizer.encode(text) + [tokenizer.eos_id]
             return prefix + completion, [-100] * len(prefix) + completion
 
-        return response(chosen), response(rejected)
+        return response(pair["chosen"]), response(pair["rejected"])
     return _prompt(row)
 
 
@@ -193,7 +179,9 @@ def _rollout(model, reference, critic, prompts, tokenizer, cfg, reward_fn, objec
     model.eval()  # Importance ratios must not compare independent dropout masks.
     with torch.no_grad():
         for prompt in prompts:
-            prefix, _ = tokenizer.encode_chat(prompt, add_generation_prompt=True)
+            prefix, _ = tokenizer.encode_chat(
+                prompt["messages"], tools=prompt.get("tools"), add_generation_prompt=True
+            )
             if len(prefix) + cfg.max_new_tokens > model.config.max_seq_len:
                 raise ValueError("prompt plus rollout budget exceeds model context")
             group = []
@@ -208,7 +196,9 @@ def _rollout(model, reference, critic, prompts, tokenizer, cfg, reward_fn, objec
                 if not completion:
                     raise ValueError("rollout contains no completion tokens")
                 reward = float(
-                    reward_fn(prompt, tokenizer.decode(completion, skip_special_tokens=True))
+                    reward_fn(
+                        prompt["messages"], tokenizer.decode(completion, skip_special_tokens=True)
+                    )
                 )
                 if not math.isfinite(reward):
                     raise ValueError("reward callback returned a nonfinite value")
@@ -332,7 +322,9 @@ def train_posttraining(
                 raise ValueError("example exceeds context or has no supervised targets")
     else:
         for prompt in encoded:
-            ids, _ = tokenizer.encode_chat(prompt, add_generation_prompt=True)
+            ids, _ = tokenizer.encode_chat(
+                prompt["messages"], tools=prompt.get("tools"), add_generation_prompt=True
+            )
             if len(ids) + config.max_new_tokens > model.config.max_seq_len:
                 raise ValueError("prompt plus rollout budget exceeds model context")
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")

@@ -1,0 +1,3 @@
+{"id":"greeting","messages":[{"role":"user","content":"Hello! Please introduce yourself in one sentence."}]}
+{"id":"arithmetic","messages":[{"role":"user","content":"What is 2 + 3? Reply with only the number."}],"expected":"5"}
+{"id":"json","messages":[{"role":"user","content":"Return a JSON object with one key, color, and the value blue."}],"expected_json":{"color":"blue"}}

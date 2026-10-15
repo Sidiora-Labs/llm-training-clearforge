@@ -356,3 +356,38 @@ def test_pause_boundary_uses_derived_epoch_horizon(config):
     )
     result = train(cfg, stop_after_steps=2)
     assert result.step == 2 and result.status == "paused"
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA hardware unavailable")
+def test_inductor_checkpointed_dropout_exact_resume(config):
+    import sysconfig
+    from pathlib import Path
+
+    if not torch.cuda.is_bf16_supported():
+        pytest.skip("CUDA bf16 unavailable")
+    includes = [sysconfig.get_path("include"), *os.environ.get("CPATH", "").split(os.pathsep)]
+    if not any((Path(path) / "Python.h").is_file() for path in includes if path):
+        pytest.skip("Inductor requires Python development headers")
+    cfg = dataclasses.replace(
+        config,
+        training=dataclasses.replace(
+            config.training,
+            device="cuda",
+            precision="bf16",
+            max_steps=3,
+            warmup_steps=1,
+            compile_model=True,
+            compile_backend="inductor",
+            activation_checkpointing=True,
+        ),
+    )
+    full = train(cfg)
+    other = dataclasses.replace(cfg, output_dir=cfg.output_dir.parent / "compiled-resumed")
+    paused = train(other, stop_after_steps=1)
+    resumed = train(other, resume=paused.checkpoint)
+    a, b = load_checkpoint(full.checkpoint), load_checkpoint(resumed.checkpoint)
+    for key in ("model", "optimizer", "scheduler", "scaler", "rng", "data_cursor", "metrics"):
+        equal_tree(a[key], b[key])
+    assert (cfg.output_dir / "metrics.jsonl").read_bytes() == (
+        other.output_dir / "metrics.jsonl"
+    ).read_bytes()
