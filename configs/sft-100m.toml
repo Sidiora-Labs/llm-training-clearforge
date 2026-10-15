@@ -1,0 +1,35 @@
+# Full-parameter chat fine-tuning of the matching native 100M base model.
+stage = "sft"
+data_dir = "../data/packed-sft"
+tokenizer_path = "../data/tokenizer/tokenizer.json"
+output_dir = "../runs/sft-100m"
+init_checkpoint = "../runs/pretrain-100m/latest.pt"
+
+[model]
+vocab_size = 32768
+hidden_size = 768
+num_layers = 12
+num_heads = 12
+num_kv_heads = 4
+intermediate_size = 2048
+max_seq_len = 1024
+dropout = 0.0
+rope_theta = 10000.0
+tie_embeddings = true
+
+[training]
+max_steps = 2500
+batch_size = 4
+accumulation_steps = 8
+learning_rate = 0.00005
+weight_decay = 0.1
+warmup_steps = 100
+min_lr_ratio = 0.1
+grad_clip = 1.0
+seed = 42
+device = "auto"
+precision = "bf16"
+save_every = 100
+eval_every = 100
+eval_batches = 10
+deterministic = true
