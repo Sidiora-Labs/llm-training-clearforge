@@ -23,6 +23,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from .checkpoint import publish_directory
+
 
 @dataclass(frozen=True)
 class SourceSpec:
@@ -90,7 +92,7 @@ def verify_unchanged(path: str | Path, expected: str) -> None:
 
 @contextmanager
 def atomic_directory(output_dir: str | Path) -> Iterator[Path]:
-    """Publish a new directory only; an exclusive sibling lock prevents competing writers."""
+    """Publish without replacement; a sibling lock excludes cooperating writers."""
     output = Path(output_dir)
     output.parent.mkdir(parents=True, exist_ok=True)
     lock = output.with_name(output.name + ".lock")
@@ -103,7 +105,7 @@ def atomic_directory(output_dir: str | Path) -> Iterator[Path]:
         yield tmp
         if output.exists():
             raise FileExistsError(output)
-        os.rename(tmp, output)
+        publish_directory(tmp, output)
         tmp = None
     finally:
         os.close(fd)
