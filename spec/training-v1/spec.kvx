@@ -1,0 +1,102 @@
+[meta]
+feature = "training-v1"
+intro = "A reproducible English-first language-model training system with auditable data and restartable training."
+
+[req.1]
+title = "Configuration and packaging"
+story = "As a model developer, I need configuration and packaging to be reliable."
+ac_1 = "Invalid configurations fail before allocation; package metadata defines installable components."
+
+[req.2]
+title = "English data and tokenizer"
+story = "As a model developer, I need english data and tokenizer to be reliable."
+ac_1 = "Source provenance, strict records, deduplicated document splits, tokenizer controls and assistant-only masks are verified."
+
+[req.3]
+title = "Decoder model"
+story = "As a model developer, I need decoder model to be reliable."
+ac_1 = "Causal attention, next-token loss, generation, tied weights and finite gradients pass numerical tests."
+
+[req.4]
+title = "Training lifecycle"
+story = "As a model developer, I need training lifecycle to be reliable."
+ac_1 = "Real optimization, validation, atomic checkpoints and deterministic resume are demonstrated."
+
+[req.5]
+title = "CLI and documentation"
+story = "As a model developer, I need cli and documentation to be reliable."
+ac_1 = "Documented commands execute end to end; limitations and recovery procedures are accurate."
+
+[design]
+overview = "Typed configuration; provenance-bearing JSONL ingestion; BPE tokenization; memory-mapped training batches; causal decoder; atomic training state; CLI and measured qualification."
+include = "../../docs/development/contracts.md"
+
+[documentation]
+mode = "manual"
+status = "pending"
+audiences = ["user", "developer"]
+targets = ["README.md", "docs/**", "CONTRIBUTING.md", "CHANGELOG.md"]
+
+[tasks]
+heading = "Clearforge implementation and qualification"
+
+[task.1.1]
+title = "Configuration and project foundation"
+status = "in_progress"
+wave = 0
+requires = []
+touches = ["pyproject.toml", "src/clearforge/config.py", "tests/test_config.py", "docs/development/contracts.md", "README.md", "src/clearforge/__init__.py", ".gitignore"]
+reqs = ["1.1"]
+do_1 = "Implement the contract and adversarial tests; preserve truthful documentation and evidence."
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_config.py"
+
+[task.2.1]
+title = "Data preparation and tokenizer"
+status = "pending"
+wave = 1
+requires = ["1.1"]
+touches = ["src/clearforge/data.py", "src/clearforge/tokenizer.py", "tests/test_data.py", "tests/test_tokenizer.py"]
+reqs = ["2.1"]
+do_1 = "Implement the contract and adversarial tests; preserve truthful documentation and evidence."
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_data.py tests/test_tokenizer.py"
+
+[task.2.2]
+title = "Causal decoder and generation"
+status = "pending"
+wave = 1
+requires = ["1.1"]
+touches = ["src/clearforge/model.py", "tests/test_model.py"]
+reqs = ["3.1"]
+do_1 = "Implement the contract and adversarial tests; preserve truthful documentation and evidence."
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_model.py"
+
+[task.2.3]
+title = "Training checkpoints and evaluation"
+status = "pending"
+wave = 1
+requires = ["1.1"]
+touches = ["src/clearforge/training.py", "src/clearforge/checkpoint.py", "tests/test_training.py", "tests/test_checkpoint.py"]
+reqs = ["4.1"]
+do_1 = "Implement the contract and adversarial tests; preserve truthful documentation and evidence."
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_training.py tests/test_checkpoint.py"
+
+[task.3.1]
+title = "CLI presets and end-to-end qualification"
+status = "pending"
+wave = 2
+requires = ["2.1", "2.2", "2.3"]
+touches = ["src/clearforge/cli.py", "src/clearforge/__main__.py", "configs/*.toml", "examples/*.jsonl", "tests/test_cli.py", "scripts/*"]
+reqs = ["5.1"]
+do_1 = "Implement the contract and adversarial tests; preserve truthful documentation and evidence."
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_cli.py"
+
+[task.3.2]
+title = "Documentation and release qualification"
+status = "pending"
+wave = 3
+requires = ["3.1"]
+touches = ["README.md", "docs/**", "CONTRIBUTING.md", "CHANGELOG.md", "LICENSE", ".github/**"]
+reqs = ["5.1"]
+do_1 = "Implement the contract and adversarial tests; preserve truthful documentation and evidence."
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests"
+
