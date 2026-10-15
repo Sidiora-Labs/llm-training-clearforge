@@ -229,7 +229,7 @@ do_1 = "Implement tool call and result schemas, reasoning fields, chat templates
 
 [task.6.6]
 title = "Training throughput and distributed execution"
-status = "pending"
+status = "in_progress"
 wave = 7
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_training.py tests/test_distributed.py"
 requires = ["6.1"]

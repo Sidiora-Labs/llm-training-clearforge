@@ -101,10 +101,74 @@ Weights and optimizer state are float32; mixed precision controls eligible
 operations. Training materializes full `[batch, sequence, vocabulary]` logits
 and an fp32 loss input. Include these allocations when choosing your batch size.
 
-Generation recomputes the sequence at every step and currently has no KV cache.
-It supports batch size one, greedy decoding or temperature/top-k sampling, and
-explicit EOS stopping. Exported bundles include file hashes for integrity checks.
-Keep input artifacts unchanged while a run is reading them.
+Generation uses cached attention keys and values, supports batched native decoding
+and sampling controls, and stops at configured EOS or stop conditions. Exported
+bundles include file hashes for integrity checks. Keep input artifacts unchanged
+while a run is reading them.
 
 Atomic directory publication uses Linux `renameat2(RENAME_NOREPLACE)`. Filesystems
 must support file locking, hard links, and atomic renames.
+
+## Epoch budgets and throughput controls
+
+Set `epochs` to a positive integer to derive the optimizer horizon from packed
+training rows. The final partial update belongs to its current epoch; rows are
+not dropped. When `epochs` is set it determines the effective `max_steps`, and
+warmup must fit that derived horizon. `stop_after_steps` remains an absolute
+optimizer boundary within the effective horizon.
+
+`init_checkpoint` can warm-start a new pretraining or SFT run from compatible
+native weights. It requires matching model dimensions and tokenizer identity;
+optimizer moments, schedule and data position start fresh. Exact continuation
+uses `resume` instead.
+
+The following optional `[training]` settings control execution:
+
+| Setting | Default | Behavior |
+|---|---:|---|
+| `compile_model` | `false` | Compile the execution model with `torch.compile`. |
+| `compile_backend` | `"inductor"` | Select `inductor`, `eager`, or `aot_eager`. |
+| `activation_checkpointing` | `false` | Recompute decoder activations during backward. |
+| `data_workers` | `0` | Load microbatches through this many CPU threads. |
+| `pin_memory` | `false` | Pin host batches for asynchronous CUDA transfer. |
+| `log_every` | `10` | Print progress, token throughput and ETA to stderr; zero disables it. |
+
+Compilation has startup cost and may alter floating-point operation order.
+Checkpointing exchanges additional computation for lower activation memory.
+Execution settings are part of resume identity. Wall-clock progress stays out
+of the deterministic metrics journal.
+
+## Distributed training
+
+Launch one process per device with `torchrun`; the ordinary train command selects
+DDP when `WORLD_SIZE > 1`:
+
+```bash
+torchrun --standalone --nproc_per_node=2 -m clearforge train configs/pretrain-100m.toml
+```
+
+Use `device="cpu"` and `precision="fp32"` for CPU/Gloo; CUDA uses NCCL and
+`LOCAL_RANK` to select each worker's device. The configured `batch_size` is per
+rank. Global updates normally contain `batch_size × accumulation_steps ×
+world_size` sequences. All ranks must use identical resolved configurations and
+identical prepared artifacts. The output directory must be shared across ranks.
+
+Each rank takes a disjoint slice of the same shuffled global cursor. Gradients
+are weighted by the number of actual supervised tokens across all ranks, with
+compensation for DDP's gradient averaging. An empty rank at an epoch tail runs a
+zero-weight dummy microbatch, keeping collective counts aligned without adding
+duplicate training supervision. Sparse expert models enable unused-parameter
+tracking. Validation runs on rank zero and restores its RNG state.
+
+Only rank zero writes the metrics journal and atomic checkpoint files. A
+checkpoint stores unwrapped native model keys, shared optimizer/scheduler/scaler
+state, the global data cursor, and separate Python/NumPy/Torch/CUDA RNG states
+for every rank. Resume rejects changed world size, rank runtime or input
+identities. A distributed checkpoint can initialize a new compatible run through
+`init_checkpoint`; exact distributed resume requires the original topology.
+
+SIGINT or SIGTERM received by any worker requests a coordinated checkpoint at an
+optimizer boundary. Setup, input validation, journal and checkpoint errors are
+reported collectively. Abrupt process or collective failures are handled by the
+process-group timeout and torchrun worker supervision; recovery uses the last
+durable checkpoint.

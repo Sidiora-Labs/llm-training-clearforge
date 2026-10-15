@@ -262,3 +262,97 @@ def test_cuda_mixed_precision_exact_resume(config, precision):
     a, b = load_checkpoint(full.checkpoint), load_checkpoint(resumed.checkpoint)
     for key in ("model", "optimizer", "scheduler", "scaler", "rng", "data_cursor", "metrics"):
         equal_tree(a[key], b[key])
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"activation_checkpointing": True},
+        {"data_workers": 2},
+        {"compile_model": True, "compile_backend": "eager"},
+    ],
+)
+def test_execution_options_preserve_parameter_updates(config, settings):
+    base = train(config)
+    adjusted = dataclasses.replace(
+        config,
+        output_dir=config.output_dir.parent / "optimized",
+        training=dataclasses.replace(config.training, **settings),
+    )
+    result = train(adjusted)
+    expected = load_checkpoint(base.checkpoint)
+    actual = load_checkpoint(result.checkpoint)
+    for key, value in expected["model"].items():
+        torch.testing.assert_close(actual["model"][key], value, rtol=0, atol=0)
+    assert actual["step"] == expected["step"]
+
+
+def test_new_pretraining_and_continued_sft_from_weights(config):
+    base = train(config)
+    continued = dataclasses.replace(
+        config, init_checkpoint=base.checkpoint, output_dir=config.output_dir.parent / "continued"
+    )
+    start = train(continued, stop_after_steps=0)
+    initial = load_checkpoint(start.checkpoint)
+    original = load_checkpoint(base.checkpoint)
+    assert initial["step"] == 0 and initial["optimizer"]["state"] == {}
+    for key in original["model"]:
+        assert torch.equal(initial["model"][key], original["model"][key])
+    # Previous checkpoints can omit architecture fields that now have defaults.
+    original["config"]["model"].pop("num_experts")
+    legacy = config.output_dir.parent / "legacy.pt"
+    atomic_save(original, legacy)
+    older = dataclasses.replace(
+        continued, init_checkpoint=legacy, output_dir=config.output_dir.parent / "legacy-start"
+    )
+    assert train(older, stop_after_steps=0).step == 0
+
+
+def test_epoch_budget_and_progress(config, capsys):
+    adjusted = dataclasses.replace(
+        config, training=dataclasses.replace(config.training, epochs=2, warmup_steps=0, log_every=1)
+    )
+    result = train(adjusted)
+    rows = len(PackedDataset(config.data_dir, "train"))
+    expected_steps = 2 * __import__("math").ceil(
+        rows / (config.training.batch_size * config.training.accumulation_steps)
+    )
+    assert result.step == expected_steps
+    progress = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
+    assert progress[-1]["eta_seconds"] == 0
+    assert progress[-1]["tokens_per_second"] > 0
+    assert train(adjusted, resume=adjusted.output_dir / "latest.pt").step == expected_steps
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"data_workers": -1},
+        {"data_workers": True},
+        {"pin_memory": 1},
+        {"epochs": 0},
+        {"compile_model": "yes"},
+        {"activation_checkpointing": 1},
+        {"compile_backend": "unknown"},
+        {"log_every": -1},
+    ],
+)
+def test_invalid_execution_controls(config, settings):
+    with pytest.raises(ValueError):
+        dataclasses.replace(config.training, **settings)
+
+
+def test_pause_boundary_uses_derived_epoch_horizon(config):
+    cfg = dataclasses.replace(
+        config,
+        training=dataclasses.replace(
+            config.training,
+            max_steps=1,
+            warmup_steps=0,
+            epochs=1,
+            batch_size=1,
+            accumulation_steps=1,
+        ),
+    )
+    result = train(cfg, stop_after_steps=2)
+    assert result.step == 2 and result.status == "paused"
