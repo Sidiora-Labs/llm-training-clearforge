@@ -1,9 +1,11 @@
 """Byte-level BPE with explicit chat boundaries and literal-safe content encoding."""
+
 from __future__ import annotations
 
 import json
 import os
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
@@ -14,7 +16,7 @@ SPECIAL_TOKENS = ["<|pad|>", "<|bos|>", "<|eos|>", "<|system|>", "<|user|>", "<|
 
 
 class ChatTokenizer:
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer: Tokenizer) -> None:
         self._tokenizer = tokenizer
         self._special = {s: tokenizer.token_to_id(s) for s in SPECIAL_TOKENS}
         if any(v is None for v in self._special.values()):
@@ -28,10 +30,10 @@ class ChatTokenizer:
         self.pad_id, self.bos_id, self.eos_id = [self._special[s] for s in SPECIAL_TOKENS[:3]]
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path: str | Path) -> ChatTokenizer:
         return cls(Tokenizer.from_file(str(path)))
 
-    def encode(self, text):
+    def encode(self, text: str) -> list[int]:
         if not isinstance(text, str):
             raise TypeError("text must be a string")
         ids = self._content.encode(text, add_special_tokens=False).ids
@@ -39,10 +41,10 @@ class ChatTokenizer:
             raise ValueError("content encoded as a reserved control token")
         return ids
 
-    def decode(self, ids):
+    def decode(self, ids: Sequence[int]) -> str:
         return self._tokenizer.decode(list(ids), skip_special_tokens=False)
 
-    def save(self, path):
+    def save(self, path: str | Path) -> Path:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".tokenizer.")
@@ -57,7 +59,9 @@ class ChatTokenizer:
             os.unlink(temporary)
         return path
 
-    def encode_chat(self, messages, *, add_generation_prompt=False):
+    def encode_chat(
+        self, messages: list[dict[str, str]], *, add_generation_prompt: bool = False
+    ) -> tuple[list[int], list[int]]:
         messages = validate_messages(messages)
         if add_generation_prompt and messages[-1]["role"] != "user":
             raise ValueError("generation prompt requires a final user message")
@@ -66,15 +70,19 @@ class ChatTokenizer:
             role = message["role"]
             content = self.encode(message["content"])
             ids.extend([self._special[f"<|{role}|>"]] + content + [self.eos_id])
-            labels.extend([-100] + (content + [self.eos_id] if role == "assistant"
-                                    else [-100] * (len(content) + 1)))
+            labels.extend(
+                [-100]
+                + (content + [self.eos_id] if role == "assistant" else [-100] * (len(content) + 1))
+            )
         if add_generation_prompt:
             ids.append(self._special["<|assistant|>"])
             labels.append(-100)
         return ids, labels
 
 
-def train_tokenizer(train_path, output_dir, *, vocab_size, min_frequency=2):
+def train_tokenizer(
+    train_path: str | Path, output_dir: str | Path, *, vocab_size: int, min_frequency: int = 2
+) -> Path:
     path = Path(train_path)
     if path.name != "train.jsonl":
         raise ValueError("tokenizer input must be the prepared train.jsonl split")
@@ -99,15 +107,31 @@ def train_tokenizer(train_path, output_dir, *, vocab_size, min_frequency=2):
         tokenizer = Tokenizer(models.BPE())
         tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
         tokenizer.decoder = decoders.ByteLevel()
-        trainer = trainers.BpeTrainer(vocab_size=vocab_size, min_frequency=min_frequency,
-                                      initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
-                                      special_tokens=SPECIAL_TOKENS, show_progress=False)
+        trainer = trainers.BpeTrainer(
+            vocab_size=vocab_size,
+            min_frequency=min_frequency,
+            initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
+            special_tokens=SPECIAL_TOKENS,
+            show_progress=False,
+        )
         tokenizer.train_from_iterator(texts(), trainer=trainer)
         if sha256(path) != manifest["split_hashes"]["train"]:
             raise ValueError("training split changed during tokenizer training")
         tokenizer.save(str(tmp / "tokenizer.json"))
-        (tmp / "manifest.json").write_text(json.dumps({"format_version": 1,
-            "training_split_sha256": sha256(path), "source_manifest_sha256": sha256(manifest_path),
-            "vocab_size": tokenizer.get_vocab_size(), "requested_vocab_size": vocab_size,
-            "min_frequency": min_frequency, "special_tokens": SPECIAL_TOKENS}, indent=2) + "\n")
+        (tmp / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "format_version": 1,
+                    "training_split_sha256": sha256(path),
+                    "tokenizer_sha256": sha256(tmp / "tokenizer.json"),
+                    "source_manifest_sha256": sha256(manifest_path),
+                    "vocab_size": tokenizer.get_vocab_size(),
+                    "requested_vocab_size": vocab_size,
+                    "min_frequency": min_frequency,
+                    "special_tokens": SPECIAL_TOKENS,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
     return Path(output_dir) / "tokenizer.json"
