@@ -285,9 +285,70 @@ def finish(root, config_path):
     write_json(root / "heldout-generations.json", examples)
 
 
+def verify_launch(root):
+    """Prove a real optimizer update and durable checkpoint, not just a live PID."""
+    import hashlib
+
+    from clearforge.checkpoint import file_sha256, load_checkpoint
+
+    state = json.loads((root / "status.json").read_text())
+    if state["stage"] not in {
+        "pretraining_and_preparing_sft",
+        "pretraining",
+        "sft",
+        "evaluating_and_exporting",
+        "complete",
+    }:
+        raise RuntimeError(f"training has not launched: {state['stage']}")
+    checkpoint = root / "pretrain" / "latest.pt"
+    payload = load_checkpoint(checkpoint)
+    if payload["step"] < 1:
+        raise RuntimeError("no completed optimizer update has been checkpointed yet")
+    if payload["config"]["training"]["max_steps"] != 65536:
+        raise RuntimeError("checkpoint does not belong to the full pretraining schedule")
+    frozen = root / "control"
+    manifest = json.loads((frozen / "runtime-manifest.json").read_text())
+    for name, digest in manifest["files"].items():
+        if file_sha256(frozen / name) != digest:
+            raise RuntimeError(f"frozen runtime changed: {name}")
+    if (
+        file_sha256(root / "pretrain-packed" / "manifest.json")
+        != payload["identities"]["dataset_manifest_sha256"]
+    ):
+        raise RuntimeError("packed data manifest differs from checkpoint")
+    if (
+        file_sha256(root / "tokenizer" / "tokenizer.json")
+        != payload["identities"]["tokenizer_sha256"]
+    ):
+        raise RuntimeError("tokenizer differs from checkpoint")
+    with (root / "pretrain" / "metrics.jsonl").open("rb") as journal:
+        prefix = journal.read(payload["metrics"]["bytes"])
+    if hashlib.sha256(prefix).hexdigest() != payload["metrics"]["sha256"]:
+        raise RuntimeError("checkpoint journal hash mismatch")
+    records = [json.loads(line) for line in prefix.splitlines()]
+    if not records or records[-1]["step"] != payload["step"]:
+        raise RuntimeError("checkpoint has no matching optimizer metrics")
+    if state["stage"] in {"pretraining_and_preparing_sft", "pretraining"}:
+        pid = state.get("training_pid")
+        command = Path(f"/proc/{pid}/cmdline")
+        if not command.exists() or b"--worker" not in command.read_bytes():
+            raise RuntimeError("pretraining worker is no longer running")
+    evidence = {
+        "verified_at": time.time(),
+        "checkpoint_step": payload["step"],
+        "checkpoint": str(checkpoint),
+        "pipeline_stage": state["stage"],
+        "last_metric": records[-1],
+        "frozen_runtime_verified": True,
+    }
+    write_json(root / "launch-verification.json", evidence)
+    print(json.dumps(evidence), flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--launch", action="store_true")
+    parser.add_argument("--verify-launch", action="store_true")
     parser.add_argument("--worker", type=Path)
     parser.add_argument(
         "--root", type=Path, default=Path("/home/ubuntu/clearforge/runs/english-100m")
@@ -298,6 +359,9 @@ def main():
         return
     root = args.root.resolve()
     root.mkdir(parents=True, exist_ok=True)
+    if args.verify_launch:
+        verify_launch(root)
+        return
     if args.launch:
         # Refuse duplicate supervisors before printing a misleading launch PID.
         with (root / "pipeline.lock").open("a") as probe:
