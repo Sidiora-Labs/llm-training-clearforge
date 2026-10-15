@@ -23,7 +23,7 @@
   - [x] 2.5 Command-line interface and native inference
     - Implement strict CLI commands and verified native inference bundles
     - _Requirements: 5.1_
-  - [ ] 3.1 CLI presets and end-to-end qualification
+  - [x] 3.1 CLI presets and end-to-end qualification
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 5.1_
   - [ ] 3.2 Documentation and release qualification

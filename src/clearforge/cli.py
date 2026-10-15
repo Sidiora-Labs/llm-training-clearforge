@@ -181,6 +181,15 @@ def _load_bundle(directory: Path, device: Any) -> tuple[Any, Any]:
         model.load_state_dict(weights, strict=True, assign=True)
         if any(not torch.isfinite(p).all().item() for p in model.parameters()):
             raise ValueError("export contains nonfinite model weights")
+        if config.tie_embeddings:
+            if not torch.equal(model.lm_head.weight, model.token_embedding.weight):
+                raise ValueError("export contains inconsistent tied embedding weights")
+            model.lm_head.weight = model.token_embedding.weight
+        # Detect ordinary in-place edits as well as path replacement during loading.
+        for name, stream in files.items():
+            stream.seek(0)
+            if hashlib.file_digest(stream, "sha256").hexdigest() != hashes[name]:
+                raise ValueError(f"export changed while loading: {name}")
         model.to(device).eval()
     return model, tokenizer
 
