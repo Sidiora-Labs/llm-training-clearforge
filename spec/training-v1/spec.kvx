@@ -166,3 +166,83 @@ touches = ["README.md", "docs/**", "CONTRIBUTING.md", "CHANGELOG.md", "configs/s
 reqs = ["5.1"]
 do_1 = "Remove qualification commentary and repetitive caveats"
 do_2 = "retain concise setup and operating instructions"
+
+[task.5.1]
+title = "Launch the full 100M English pretraining and chat pipeline"
+status = "in_progress"
+wave = 6
+verify_cmd = "python3 -m py_compile scripts/train_100m.py"
+requires = ["4.2"]
+touches = ["scripts/train_100m.py", "configs/english-100m-*.toml", "requirements-training.txt"]
+reqs = ["4.1", "5.1"]
+do_1 = "Pin and ingest English corpora, train tokenizer, prepare packed datasets, launch durable pretraining and chat fine-tuning with evaluation and export"
+
+[task.6.1]
+title = "Cached decoding and extended model architectures"
+status = "pending"
+wave = 6
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_model.py tests/test_config.py tests/test_generation.py"
+requires = ["4.2"]
+touches = ["src/clearforge/model.py", "src/clearforge/config.py", "tests/test_model.py", "tests/test_config.py", "tests/test_generation.py", "docs/model.md"]
+reqs = ["3.1"]
+do_1 = "Implement KV cache, streaming and batched sampling, nucleus/repetition controls, optional MoE and YaRN with numerical tests"
+
+[task.6.2]
+title = "Chat API and browser interface"
+status = "pending"
+wave = 6
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_serving.py"
+requires = ["4.2"]
+touches = ["src/clearforge/serving.py", "src/clearforge/web/*", "tests/test_serving.py", "docs/serving.md"]
+reqs = ["5.1"]
+do_1 = "Implement chat completion API with SSE, model listing, and browser conversations with generation controls"
+
+[task.6.3]
+title = "Adapters and post-training objectives"
+status = "pending"
+wave = 6
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_adapters.py tests/test_objectives.py tests/test_posttraining.py"
+requires = ["4.2"]
+touches = ["src/clearforge/adapters.py", "src/clearforge/objectives.py", "src/clearforge/posttraining.py", "tests/test_adapters.py", "tests/test_objectives.py", "tests/test_posttraining.py", "docs/posttraining.md"]
+reqs = ["4.1"]
+do_1 = "Implement LoRA lifecycle, DPO, distillation, PPO, GRPO and CISPO training paths with real parameter update and objective tests"
+
+[task.6.4]
+title = "Portable model interchange"
+status = "pending"
+wave = 7
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_interchange.py"
+requires = ["6.1"]
+touches = ["src/clearforge/interchange.py", "tests/test_interchange.py", "docs/interchange.md"]
+reqs = ["5.1"]
+do_1 = "Export and import standard Transformers compatible weights and tokenizer templates with logit equivalence checks"
+
+[task.6.5]
+title = "Tool conversations and corpus adapters"
+status = "pending"
+wave = 7
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_data.py tests/test_tokenizer.py tests/test_tools.py"
+requires = ["6.1"]
+touches = ["src/clearforge/data.py", "src/clearforge/tokenizer.py", "src/clearforge/tools.py", "tests/test_data.py", "tests/test_tokenizer.py", "tests/test_tools.py", "docs/data.md"]
+reqs = ["2.1"]
+do_1 = "Implement tool call and result schemas, reasoning fields, chat templates, preference and RL prompt adapters"
+
+[task.6.6]
+title = "Training throughput and distributed execution"
+status = "pending"
+wave = 7
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_training.py tests/test_distributed.py"
+requires = ["6.1"]
+touches = ["src/clearforge/training.py", "src/clearforge/config.py", "src/clearforge/distributed.py", "tests/test_training.py", "tests/test_distributed.py", "docs/training.md"]
+reqs = ["4.1"]
+do_1 = "Add flexible weight initialization, compile, activation checkpointing, loading controls, progress and distributed training"
+
+[task.6.7]
+title = "Integrate advanced commands and evaluations"
+status = "pending"
+wave = 8
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q"
+requires = ["6.2", "6.3", "6.4", "6.5", "6.6"]
+touches = ["src/clearforge/cli.py", "src/clearforge/evaluation.py", "src/clearforge/rollout.py", "pyproject.toml", "tests/test_cli.py", "tests/test_evaluation.py", "tests/test_rollout.py", "README.md", "docs/**", "configs/*"]
+reqs = ["5.1"]
+do_1 = "Integrate commands, rollout backends and tool episodes, evaluation suites, tokenizer diagnostics and optional dependencies"

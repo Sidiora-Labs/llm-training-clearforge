@@ -42,6 +42,30 @@
     - Remove qualification commentary and repetitive caveats
     - retain concise setup and operating instructions
     - _Requirements: 5.1_
+  - [-] 5.1 Launch the full 100M English pretraining and chat pipeline
+    - Pin and ingest English corpora, train tokenizer, prepare packed datasets, launch durable pretraining and chat fine-tuning with evaluation and export
+    - _Requirements: 4.1, 5.1_
+  - [ ] 6.1 Cached decoding and extended model architectures
+    - Implement KV cache, streaming and batched sampling, nucleus/repetition controls, optional MoE and YaRN with numerical tests
+    - _Requirements: 3.1_
+  - [ ] 6.2 Chat API and browser interface
+    - Implement chat completion API with SSE, model listing, and browser conversations with generation controls
+    - _Requirements: 5.1_
+  - [ ] 6.3 Adapters and post-training objectives
+    - Implement LoRA lifecycle, DPO, distillation, PPO, GRPO and CISPO training paths with real parameter update and objective tests
+    - _Requirements: 4.1_
+  - [ ] 6.4 Portable model interchange
+    - Export and import standard Transformers compatible weights and tokenizer templates with logit equivalence checks
+    - _Requirements: 5.1_
+  - [ ] 6.5 Tool conversations and corpus adapters
+    - Implement tool call and result schemas, reasoning fields, chat templates, preference and RL prompt adapters
+    - _Requirements: 2.1_
+  - [ ] 6.6 Training throughput and distributed execution
+    - Add flexible weight initialization, compile, activation checkpointing, loading controls, progress and distributed training
+    - _Requirements: 4.1_
+  - [ ] 6.7 Integrate advanced commands and evaluations
+    - Integrate commands, rollout backends and tool episodes, evaluation suites, tokenizer diagnostics and optional dependencies
+    - _Requirements: 5.1_
 
 ## Task Dependency Graph
 
@@ -53,7 +77,10 @@
     { "id": 2,  "tasks": ["3.1"] },
     { "id": 3,  "tasks": ["3.2", "3.3"] },
     { "id": 4,  "tasks": ["4.1"] },
-    { "id": 5,  "tasks": ["4.2"] }
+    { "id": 5,  "tasks": ["4.2"] },
+    { "id": 6,  "tasks": ["5.1", "6.1", "6.2", "6.3"] },
+    { "id": 7,  "tasks": ["6.4", "6.5", "6.6"] },
+    { "id": 8,  "tasks": ["6.7"] }
   ]
 }
 ```
