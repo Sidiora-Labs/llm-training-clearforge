@@ -158,7 +158,7 @@ do_3 = "verify package license metadata and documentation links"
 
 [task.4.2]
 title = "Simplify project documentation and remove disclaimer clutter"
-status = "in_progress"
+status = "done"
 wave = 5
 verify_cmd = "python3 scripts/check_presets.py"
 requires = ["4.1"]
