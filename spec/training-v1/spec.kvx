@@ -170,7 +170,7 @@ do_2 = "retain concise setup and operating instructions"
 [task.5.1]
 title = "Launch the full 100M English pretraining and chat pipeline"
 status = "in_progress"
-wave = 6
+wave = 5
 verify_cmd = "python3 -m py_compile scripts/train_100m.py"
 requires = ["4.2"]
 touches = ["scripts/train_100m.py", "configs/english-100m-*.toml", "requirements-training.txt"]
@@ -199,7 +199,7 @@ do_1 = "Implement chat completion API with SSE, model listing, and browser conve
 
 [task.6.3]
 title = "Adapters and post-training objectives"
-status = "pending"
+status = "done"
 wave = 6
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_adapters.py tests/test_objectives.py tests/test_posttraining.py"
 requires = ["4.2"]
