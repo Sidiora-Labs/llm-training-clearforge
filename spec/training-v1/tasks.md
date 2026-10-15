@@ -7,20 +7,20 @@
   - [x] 1.1 Configuration and project foundation
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 1.1_
-  - [ ] 2.1 Data preparation and tokenizer
+  - [x] 2.1 Data preparation and tokenizer
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 2.1_
-  - [ ] 2.2 Causal decoder and generation
+  - [x] 2.2 Causal decoder and generation
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 3.1_
-  - [ ] 2.3 Training checkpoints and evaluation
+  - [x] 2.3 Training checkpoints and evaluation
     - Implement the contract and adversarial tests; preserve truthful documentation and evidence.
     - _Requirements: 4.1_
-  - [ ] 2.4 Presets and operating documentation
+  - [x] 2.4 Presets and operating documentation
     - Define size presets and reproducible operating instructions
     - distinguish smoke data from production quality
-    - _Requirements: 5.1_
-  - [ ] 2.5 Command-line interface and native inference
+    - _Requirements: 6.1_
+  - [x] 2.5 Command-line interface and native inference
     - Implement strict CLI commands and verified native inference bundles
     - _Requirements: 5.1_
   - [ ] 3.1 CLI presets and end-to-end qualification

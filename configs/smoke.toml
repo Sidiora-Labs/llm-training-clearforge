@@ -1,0 +1,28 @@
+# A functional CPU check, not a useful pretrained language model.
+stage = "pretrain"
+data_dir = "../data/smoke-packed"
+tokenizer_path = "../data/smoke-tokenizer"
+output_dir = "../runs/smoke-pretrain"
+
+[model]
+vocab_size = 512
+hidden_size = 64
+num_layers = 2
+num_heads = 4
+num_kv_heads = 2
+intermediate_size = 128
+max_seq_len = 64
+dropout = 0.1
+
+[training]
+max_steps = 8
+batch_size = 2
+accumulation_steps = 2
+learning_rate = 0.003
+warmup_steps = 2
+seed = 42
+device = "cpu"
+precision = "fp32"
+save_every = 4
+eval_every = 4
+eval_batches = 2

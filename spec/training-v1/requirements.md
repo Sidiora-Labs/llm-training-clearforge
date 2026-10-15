@@ -44,3 +44,11 @@ A reproducible English-first language-model training system with auditable data 
 
 1. Documented commands execute end to end; limitations and recovery procedures are accurate.
 
+## Requirement 6: Presets and operating guidance
+
+**User Story:** As an operator, I need valid presets and explicit operating boundaries.
+
+### Acceptance Criteria
+
+1. Every shipped preset validates; documentation distinguishes offline fixtures, native training scope, and unmeasured quality.
+
