@@ -189,7 +189,7 @@ do_1 = "Implement KV cache, streaming and batched sampling, nucleus/repetition c
 
 [task.6.2]
 title = "Chat API and browser interface"
-status = "in_progress"
+status = "done"
 wave = 6
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_serving.py"
 requires = ["4.2"]
