@@ -27,6 +27,11 @@ title = "CLI and documentation"
 story = "As a model developer, I need cli and documentation to be reliable."
 ac_1 = "Documented commands execute end to end; limitations and recovery procedures are accurate."
 
+[req.6]
+title = "Presets and operating guidance"
+story = "As an operator, I need valid presets and explicit operating boundaries."
+ac_1 = "Every shipped preset validates; documentation distinguishes offline fixtures, native training scope, and unmeasured quality."
+
 [design]
 overview = "Typed configuration; provenance-bearing JSONL ingestion; BPE tokenization; memory-mapped training batches; causal decoder; atomic training state; CLI and measured qualification."
 include = "../../docs/development/contracts.md"
@@ -102,11 +107,11 @@ verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests"
 
 [task.2.4]
 title = "Presets and operating documentation"
-status = "pending"
+status = "in_progress"
 wave = 1
 verify_cmd = "python3 scripts/check_presets.py"
 requires = ["1.1"]
-touches = ["configs/*.toml", "docs/getting-started.md", "docs/data.md", "docs/training.md", "docs/architecture.md", "docs/development/quality.md", "CONTRIBUTING.md", "CHANGELOG.md", "LICENSE"]
-reqs = ["5.1"]
+touches = ["configs/*.toml", "docs/getting-started.md", "docs/data.md", "docs/training.md", "docs/architecture.md", "docs/development/quality.md", "CONTRIBUTING.md", "CHANGELOG.md", "LICENSE", "scripts/check_presets.py"]
+reqs = ["6.1"]
 do_1 = "Define size presets and reproducible operating instructions"
 do_2 = "distinguish smoke data from production quality"
