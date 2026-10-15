@@ -33,7 +33,7 @@
     - Reuse atomic no-replace directory publication
     - Prove a concurrent destination survives publication failure
     - _Requirements: 2.1_
-  - [-] 4.1 Align Sidiora licensing and project presentation
+  - [x] 4.1 Align Sidiora licensing and project presentation
     - Apply Apache-2.0 and Sidiora attribution consistently
     - match established README presentation
     - verify package license metadata and documentation links
