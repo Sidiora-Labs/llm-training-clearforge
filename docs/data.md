@@ -35,7 +35,7 @@ for conversation fine-tuning. Read each dataset card and its current terms befor
 selecting a version. Pin an immutable revision and retain the upstream split and
 any conversion procedure. These datasets are not downloaded automatically.
 
-The repository's examples are original, small English fixtures. They verify the
+The repository's examples are original, MIT-licensed small English fixtures. They verify the
 workflow and cannot supply the breadth needed for a useful general chatbot.
 
 ## Split discipline
@@ -53,13 +53,16 @@ copying training records into validation.
 
 The tokenizer is byte-level BPE with explicit conversation delimiters. A requested
 vocabulary size is an upper bound on what a small corpus can learn; inspect the
-actual vocabulary before training. Native model embeddings must cover that
+actual vocabulary before training. Native model vocabulary must equal that
 vocabulary, and fine-tuning must preserve its identity.
 
-Pretraining can concatenate documents with explicit end-of-document boundaries.
+Pretraining concatenates documents with explicit end-of-document boundaries.
 That is not the same as resetting attention between documents. Chat packing must
 preserve role masks and report unsupported or excluded records. Inspect the
 packing manifest rather than assuming every input character was retained.
 
 Code licensing does not grant rights to training corpora or resulting models.
 Do not mix secrets or private conversations into a public training corpus.
+
+See [data pipeline details](data-pipeline.md) for exact integrity checks,
+windowing behavior, and the context limits of long SFT conversations.

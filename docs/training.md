@@ -58,3 +58,67 @@ model as useful.
 Training checkpoints may contain Python serialization needed to restore optimizer
 and random state. Load only checkpoints produced by trusted runs. Do not use an
 untrusted checkpoint as a transport for model weights.
+
+## Checkpoint recovery and retention
+
+Each run owns its output directory. A nonblocking run lock prevents concurrent
+trainers from writing to it. Checkpoints are written through a temporary file,
+flushed, and atomically published at optimizer boundaries. `latest.pt` is an
+atomic hard link to a retained `checkpoints/step-########.pt` file.
+
+`keep_checkpoints` defaults to **3** and must be positive. After a new checkpoint
+and latest pointer are durable, older numbered checkpoints are pruned. Unrelated
+filenames are left alone. Allow disk space for the retained checkpoints, a new
+checkpoint under construction, and exported weights. Optimizer checkpoints are
+substantially larger than the model weights alone.
+
+SIGINT and SIGTERM request a stop at the next optimizer boundary, followed by a
+checkpoint. A hard kill or machine failure cannot save unfinished work. Resume
+from the most recent durable checkpoint; the metrics journal is verified against
+that checkpoint and any newer uncommitted suffix is removed atomically.
+
+Resume requires the owned numbered checkpoint to remain in the run's checkpoint
+directory, even when selecting it through `latest.pt`. To move a resumable run,
+retain its complete directory and original resolved paths; path changes are
+configuration changes and are rejected by exact resume. Use a native export for
+portable inference instead.
+
+Compatibility checks cover the full resolved configuration, tokenizer and packed
+data hashes, implementation source hashes, library/runtime identity, thread
+settings, and recorded CUDA hardware. They intentionally reject changes that
+would undermine the tested continuation guarantee. Resume equivalence was tested
+with dropout on CPU and on the available CUDA device; it is not a guarantee
+across arbitrary drivers, hardware, or environments.
+
+## Metrics and validation coverage
+
+`metrics.jsonl` contains one record per optimizer update: step, epoch/cursor,
+supervised token count, token-weighted training loss, learning rate, gradient
+norm, and periodic validation results. Accumulation stops at an epoch boundary;
+a final partial group uses its actual supervised token count rather than a fixed
+microbatch denominator.
+
+Validation evaluates at most `eval_batches` batches from the beginning of the
+validation split, using the configured batch size. The shipped presets use a
+bounded subset. Increase that limit to cover the entire split when reporting
+corpus-level results. Evaluation preserves random-generator state. Perplexity is
+`null` with an explicit overflow flag when exponentiating loss would overflow.
+
+## Resource and format boundaries
+
+Weights and optimizer state are float32; mixed precision controls eligible
+operations. Training materializes full `[batch, sequence, vocabulary]` logits
+and an fp32 loss input. There is no activation checkpointing, distributed
+optimizer, or quantized training in this version. The larger presets have not
+been qualified for production throughput or memory usage on every device.
+
+Generation recomputes the sequence at every step and currently has no KV cache.
+It supports batch size one, greedy decoding or temperature/top-k sampling, and
+explicit EOS stopping. Exported hashes detect accidental changes; they do not
+provide signed authenticity. Keep input artifacts immutable while reading them;
+file checks are not a transactional snapshot of a filesystem under hostile
+concurrent modification.
+
+Atomic directory publication uses Linux `renameat2(RENAME_NOREPLACE)`. Filesystems
+must support ordinary file locking, hard links, and atomic renames. The initial
+release is qualified on local Linux storage, not network filesystems or Windows.

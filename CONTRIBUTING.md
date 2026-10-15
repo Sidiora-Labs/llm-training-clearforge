@@ -37,3 +37,21 @@ behind test and lint gates. No remote publication is implied.
 Document errors, recovery behavior, resource limits, and measured limitations.
 Do not claim model quality from a functional smoke test or claim an export format
 that downstream software has not successfully loaded.
+
+## Packaging and accelerator checks
+
+```bash
+python scripts/check_presets.py
+python -m build
+```
+
+The GitHub Actions workflow checks Python 3.11 and 3.12 on CPU and builds source
+and wheel distributions. A locally configured workflow is not evidence that a
+remote CI run has executed. CUDA resume tests run only when compatible hardware
+is available; otherwise pytest reports explicit skips. To check a CPU-only path
+on a GPU machine, run `CUDA_VISIBLE_DEVICES='' python -m pytest -q`.
+
+Use `OMP_NUM_THREADS=2 MKL_NUM_THREADS=2` for small test fixtures on machines with
+large CPU affinity masks. Keep Torch thread settings consistent across resume
+comparisons. Specification worktree tests must import that worktree's source:
+use `PYTHONPATH=src` if an editable install points at a different checkout.

@@ -6,4 +6,9 @@ Initial development of the English-first native training workflow, including
 strict configuration, corpus preparation, byte-level tokenization, causal decoder
 models, restartable optimization, evaluation, and portable native export.
 
-Qualification results and tested commands are recorded before release.
+The initial implementation includes five validated presets, original offline
+fixtures, an executable pretraining-to-chat workflow, bounded checkpoint
+retention, corruption preflight checks, and native-bundle integrity verification.
+
+See [qualification](docs/qualification.md) for actual local test results and
+measured fixture runs. No public release or remote CI execution is implied.

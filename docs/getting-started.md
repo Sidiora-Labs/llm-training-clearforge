@@ -1,7 +1,8 @@
 # Getting started
 
-Use Python 3.11 or newer in an isolated environment. Install a PyTorch build that
-supports the intended hardware, then install Clearforge and its development tools:
+## Installation
+
+Use Linux with Python 3.11 or newer. From the repository root:
 
 ```bash
 python -m venv .venv
@@ -10,15 +11,18 @@ python -m pip install -e '.[dev]'
 clearforge doctor
 ```
 
-For CUDA installations, use the appropriate wheel from the
-[PyTorch installation guide](https://pytorch.org/get-started/locally/). A driver
-version alone does not establish that the installed PyTorch build supports a GPU.
-The doctor command reports what this process can actually access.
+For CUDA, install a PyTorch build appropriate to the GPU and driver using the
+[PyTorch installation guide](https://pytorch.org/get-started/locally/).
+`doctor` performs a real CUDA allocation, arithmetic operation, and host readback;
+it reports current free memory rather than assuming the advertised capacity is
+available. Free memory can change while other workloads are running.
 
-## Run the offline example
+All commands below run from the repository root. Configuration paths resolve
+relative to their TOML file. CLI data paths resolve relative to your current
+directory. Output directories must be new. The complete sequence is also available
+as `bash scripts/run_smoke.sh`.
 
-Run these commands from the repository root. Each output directory must be new;
-use a separate workspace or fresh paths when repeating the example.
+## 1. Prepare text and train a tokenizer
 
 ```bash
 clearforge data prepare --source examples/pretrain.jsonl --license MIT \
@@ -28,37 +32,70 @@ clearforge tokenizer train --input data/smoke-prepared/train.jsonl \
   --output data/smoke-tokenizer --vocab-size 512
 clearforge data pack --input data/smoke-prepared --tokenizer data/smoke-tokenizer \
   --output data/smoke-packed --seq-length 64 --mode pretrain
-clearforge train configs/smoke.toml
-clearforge evaluate configs/smoke.toml --checkpoint runs/smoke-pretrain/latest.pt
-clearforge export configs/smoke.toml --checkpoint runs/smoke-pretrain/latest.pt \
-  --output runs/smoke-export
-clearforge chat --model runs/smoke-export --prompt "What is a library?" \
-  --max-new-tokens 32
 ```
 
-This run exercises the pipeline on a tiny model and fixture corpus. Its generated
-text is not evidence of useful chat quality. The example intentionally runs on
-CPU so that the basic workflow does not require a GPU or network access.
+The CLI accepts a tokenizer directory or its `tokenizer.json` for `data pack`.
+The TOML `tokenizer_path` must identify the actual `tokenizer.json` file.
+The fixture learns the preset's 512-token vocabulary; a different small corpus
+may learn fewer tokens. Match `model.vocab_size` to the packed manifest exactly.
 
-## Continue a run
-
-Use `--resume` with the same configuration and unchanged data:
+## 2. Pretrain and verify continuation
 
 ```bash
+clearforge train configs/smoke.toml --stop-after-steps 4
 clearforge train configs/smoke.toml --resume runs/smoke-pretrain/latest.pt
 ```
 
-A completed run remains completed; increasing `max_steps` is a different schedule
-and is not an exact continuation of the recorded run. To inspect an interruption,
-read the run's metrics and checkpoint step before resuming.
+`--stop-after-steps` pauses at an absolute optimizer update without changing the
+configured eight-update schedule. Resume uses the same configuration, inputs,
+implementation, and execution environment. A completed run remains completed;
+increasing `max_steps` changes the schedule and is rejected as an exact resume.
 
-## Move to a larger experiment
+## 3. Fine-tune the base model for chat
 
-Read [data preparation](data.md) before importing a real corpus. Train a tokenizer
-on its training partition, pack the data with the chosen context length, and copy
-one of the nominal 100M, 300M, or 1B configurations to a new experiment file.
-Match vocabulary and sequence dimensions to the packed manifest. Check the actual
-GPU allocation, then use a short run to measure memory and throughput.
+```bash
+clearforge data prepare --source examples/chat.jsonl --license MIT \
+  --language en --mode sft --output data/smoke-sft-prepared \
+  --validation-fraction 0.2
+clearforge data pack --input data/smoke-sft-prepared --tokenizer data/smoke-tokenizer \
+  --output data/smoke-sft-packed --seq-length 64 --mode sft
+clearforge train configs/smoke-sft.toml
+```
 
-See [training and recovery](training.md) for optimization and checkpoint semantics,
-and [architecture](architecture.md) for component boundaries.
+Reuse the base tokenizer. The SFT configuration loads the pretraining checkpoint
+into a new run with a fresh optimizer and data cursor. Only assistant content and
+assistant end-of-turn tokens contribute to the loss.
+
+## 4. Evaluate, export, and generate
+
+```bash
+clearforge evaluate configs/smoke-sft.toml --checkpoint runs/smoke-sft/latest.pt
+clearforge export configs/smoke-sft.toml --checkpoint runs/smoke-sft/latest.pt \
+  --output runs/smoke-export
+clearforge chat --model runs/smoke-export --prompt "What is a library?" \
+  --max-new-tokens 8 --device cpu
+```
+
+Omit `--prompt` for interactive chat; enter `/quit` to leave. The prompt, retained
+conversation, and requested response budget must fit the model's context. An
+oversized request fails explicitly. The 64-token fixture context is deliberately
+small; it is unsuitable for extended conversations.
+
+This CPU workflow checks mechanics on a tiny corpus. Eight updates of each stage
+do not produce useful chat quality. No network access is needed once dependencies
+are installed.
+
+## Larger experiments
+
+Read [data preparation](data.md), then build a licensed English corpus and an
+independent validation partition. Copy a size preset into a new experiment file,
+set its data/tokenizer/output paths, and match vocabulary and context dimensions.
+Use a short run to measure memory before committing to a larger training budget.
+
+The global `--threads` option defaults to eight CPU threads and comes before the
+command, for example `clearforge --threads 4 train configs/experiment.toml`.
+Keep it unchanged when resuming. All commands expose `--help`; global `--debug`
+shows full exception tracebacks when diagnosing a failure.
+
+See [training and recovery](training.md) for interruption handling, retention,
+trust boundaries, and compatibility requirements.
