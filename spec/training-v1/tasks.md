@@ -60,7 +60,7 @@
   - [ ] 6.5 Tool conversations and corpus adapters
     - Implement tool call and result schemas, reasoning fields, chat templates, preference and RL prompt adapters
     - _Requirements: 2.1_
-  - [-] 6.6 Training throughput and distributed execution
+  - [x] 6.6 Training throughput and distributed execution
     - Add flexible weight initialization, compile, activation checkpointing, loading controls, progress and distributed training
     - _Requirements: 4.1_
   - [ ] 6.7 Integrate advanced commands and evaluations
