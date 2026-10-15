@@ -3,6 +3,58 @@
 Train a 100M base model on English text, then fine-tune it on conversations
 using supervised assistant responses.
 
+## Complete pinned-corpus run
+
+The repository includes a complete acquisition-to-export pipeline:
+
+```bash
+python -m pip install -e . -r requirements-training.txt
+python scripts/train_100m.py --launch --root "$PWD/runs/english-100m"
+```
+
+This downloads three pinned FineWeb-Edu shards, validates their checksums,
+deduplicates and splits documents, trains a 32,768-token BPE tokenizer on the
+training split, and packs 1,024-token sequences. The 100,682,496-parameter model
+then trains for 65,536 updates, with eight sequences per microbatch and four
+accumulation steps: approximately 2.147 billion input positions. Training uses
+bf16 on CUDA, with checkpoints and validation every 500 updates.
+
+While pretraining runs, the pipeline prepares the pinned Smol-SmolTalk corpus.
+It then fine-tunes the base for two epochs, evaluates the result, exports a native
+chat bundle, and saves generations from the dataset's official held-out split.
+Dataset revisions, licenses, source checksums and preparation manifests remain
+inside the run directory.
+
+The supervisor runs independently of the terminal. Inspect its stage and live
+optimizer metrics with:
+
+```bash
+cat runs/english-100m/status.json
+tail -f runs/english-100m/pretrain/metrics.jsonl
+```
+
+`pipeline.log`, `pretrain.log` and `sft.log` contain stage and worker output.
+`control/` preserves the exact source and resolved configurations used for the
+run, so subsequent repository changes do not change an active training job.
+The latest durable weights are in `pretrain/latest.pt` or `sft/latest.pt`;
+three checkpoints are retained per stage. Restart the same launch command to
+resume a stopped pipeline after its previous supervisor and worker have exited.
+
+After the first scheduled checkpoint, verify the running job and its identities:
+
+```bash
+python scripts/train_100m.py --verify-launch --root "$PWD/runs/english-100m"
+```
+
+The completed model and evaluation artifacts are `chat-model/`,
+`evaluation.json`, and `heldout-generations.json` inside the run directory:
+
+```bash
+clearforge chat --model runs/english-100m/chat-model --prompt "Hello!" --stream
+```
+
+The following steps use your own corpora and allow a different training budget.
+
 ## 1. Assemble the training material
 
 Provide two local UTF-8 JSONL files using the formats in [data preparation](data.md):

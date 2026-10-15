@@ -171,9 +171,9 @@ do_2 = "retain concise setup and operating instructions"
 title = "Launch the full 100M English pretraining and chat pipeline"
 status = "in_progress"
 wave = 5
-verify_cmd = "python3 -m py_compile scripts/train_100m.py"
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python scripts/train_100m.py --verify-launch --root /home/ubuntu/clearforge/runs/english-100m"
 requires = ["4.2"]
-touches = ["scripts/train_100m.py", "configs/english-100m-*.toml", "requirements-training.txt"]
+touches = ["scripts/train_100m.py", "configs/english-100m-*.toml", "requirements-training.txt", "docs/small-chat-recipe.md"]
 reqs = ["4.1", "5.1"]
 do_1 = "Pin and ingest English corpora, train tokenizer, prepare packed datasets, launch durable pretraining and chat fine-tuning with evaluation and export"
 
