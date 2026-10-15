@@ -244,7 +244,13 @@ def test_live_http_disconnect_stops_worker(app):
 def test_seed_reproducibility_and_rng_isolation(app):
     with TestClient(app) as client:
         before = torch.get_rng_state().clone()
-        a = client.post("/v1/chat/completions", json=query(temperature=0.8, seed=53)).json()
-        b = client.post("/v1/chat/completions", json=query(temperature=0.8, seed=53)).json()
+        a = client.post(
+            "/v1/chat/completions",
+            json=query(temperature=0.8, seed=53, top_p=0.8, repetition_penalty=1.2),
+        ).json()
+        b = client.post(
+            "/v1/chat/completions",
+            json=query(temperature=0.8, seed=53, top_p=0.8, repetition_penalty=1.2),
+        ).json()
         assert a["choices"] == b["choices"]
         assert torch.equal(before, torch.get_rng_state())

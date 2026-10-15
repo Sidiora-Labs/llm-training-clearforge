@@ -58,38 +58,21 @@ def _error(message: str, status: int = 400, code: str = "invalid_request_error")
 
 
 def _tokens(model: Any, ids: torch.Tensor, options: ChatRequest, eos: int) -> Iterator[int]:
-    """Use cached streaming when available; legacy native bundles share the same weights."""
-    kwargs = dict(
+    """Consume cached single-sequence generation and always close its iterator."""
+    iterator = model.stream_generate(
+        ids,
         max_new_tokens=options.max_tokens,
         temperature=options.temperature,
         top_k=options.top_k,
         eos_token_id=eos,
+        top_p=options.top_p,
+        repetition_penalty=options.repetition_penalty,
     )
-    if hasattr(model, "stream_generate"):
-        iterator = model.stream_generate(
-            ids, **kwargs, top_p=options.top_p, repetition_penalty=options.repetition_penalty
-        )
-        try:
-            for token in iterator:
-                yield int(token[0, 0])
-        finally:
-            iterator.close()
-    else:
-        # Token-at-a-time fallback still streams and allows cancellation between steps.
-        if options.top_p != 1 or options.repetition_penalty != 1:
-            raise ValueError("this model implementation requires top_p=1 and repetition_penalty=1")
-        for _ in range(options.max_tokens):
-            ids = model.generate(
-                ids,
-                max_new_tokens=1,
-                temperature=options.temperature,
-                top_k=options.top_k,
-                eos_token_id=eos,
-            )
-            token = int(ids[0, -1])
-            yield token
-            if token == eos:
-                break
+    try:
+        for token in iterator:
+            yield int(token[0, 0])
+    finally:
+        iterator.close()
 
 
 class Generation:
@@ -136,9 +119,10 @@ class Generation:
             device = next(model.parameters()).device
             devices = [device.index or 0] if device.type == "cuda" else []
             with torch.random.fork_rng(devices=devices), torch.inference_mode():
-                torch.manual_seed(
-                    options.seed if options.seed is not None else secrets.randbits(63)
-                )
+                seed = options.seed if options.seed is not None else secrets.randbits(63)
+                torch.random.default_generator.manual_seed(seed)
+                if device.type == "cuda":
+                    torch.cuda.default_generators[device.index or 0].manual_seed(seed)
                 iterator = _tokens(
                     model,
                     torch.tensor([ids], dtype=torch.long, device=device),
@@ -305,9 +289,9 @@ def create_app(
         try:
             body = bytearray()
             async for part in request.stream():
-                body.extend(part)
-                if len(body) > max_body_bytes:
+                if len(body) + len(part) > max_body_bytes:
                     return _error("Request body exceeds server limit", 413, "request_too_large")
+                body.extend(part)
             options = ChatRequest.model_validate_json(body)
         except (ValidationError, ValueError):
             return _error("Invalid chat request: check fields, types, and generation limits")
