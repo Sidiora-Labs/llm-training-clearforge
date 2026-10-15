@@ -1,0 +1,3 @@
+# Corpus acquisition dependencies; core model dependencies are in pyproject.toml.
+huggingface-hub==0.36.2
+pyarrow==23.0.1
