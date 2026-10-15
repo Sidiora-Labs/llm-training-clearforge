@@ -7,6 +7,9 @@ name = "clearforge"
 version = "0.1.0"
 description = "Reproducible English-first language model training"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Sidiora Labs Inc." }]
 requires-python = ">=3.11"
 dependencies = ["torch>=2.9,<3", "numpy>=1.26,<3", "tokenizers>=0.22,<0.23"]
 

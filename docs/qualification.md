@@ -92,3 +92,11 @@ usable, run it on a substantial licensed English corpus and evaluate held-out
 conversation tasks. Record dataset revisions, tokenizer identity, training
 budget, loss curves, representative generations, and failure cases. Passing
 software tests and observing finite GPU updates do not establish answer quality.
+
+## Presentation and distribution metadata
+
+The subsequent convention alignment applies Apache-2.0 with Sidiora Labs Inc.
+attribution consistently to the project and original fixtures. The CLI fixture
+workflow was rerun with those declarations. Built wheel metadata and the bundled
+license were checked against `pyproject.toml` and the root `LICENSE`; these
+packaging checks do not alter the earlier numerical training results.

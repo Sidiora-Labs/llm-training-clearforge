@@ -33,6 +33,11 @@
     - Reuse atomic no-replace directory publication
     - Prove a concurrent destination survives publication failure
     - _Requirements: 2.1_
+  - [-] 4.1 Align Sidiora licensing and project presentation
+    - Apply Apache-2.0 and Sidiora attribution consistently
+    - match established README presentation
+    - verify package license metadata and documentation links
+    - _Requirements: 1.1, 5.1_
 
 ## Task Dependency Graph
 
@@ -42,7 +47,8 @@
     { "id": 0,  "tasks": ["1.1"] },
     { "id": 1,  "tasks": ["2.1", "2.2", "2.3", "2.4", "2.5"] },
     { "id": 2,  "tasks": ["3.1"] },
-    { "id": 3,  "tasks": ["3.2", "3.3"] }
+    { "id": 3,  "tasks": ["3.2", "3.3"] },
+    { "id": 4,  "tasks": ["4.1"] }
   ]
 }
 ```

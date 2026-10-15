@@ -25,7 +25,7 @@ as `bash scripts/run_smoke.sh`.
 ## 1. Prepare text and train a tokenizer
 
 ```bash
-clearforge data prepare --source examples/pretrain.jsonl --license MIT \
+clearforge data prepare --source examples/pretrain.jsonl --license Apache-2.0 \
   --language en --mode pretrain --output data/smoke-prepared \
   --validation-fraction 0.2
 clearforge tokenizer train --input data/smoke-prepared/train.jsonl \
@@ -54,7 +54,7 @@ increasing `max_steps` changes the schedule and is rejected as an exact resume.
 ## 3. Fine-tune the base model for chat
 
 ```bash
-clearforge data prepare --source examples/chat.jsonl --license MIT \
+clearforge data prepare --source examples/chat.jsonl --license Apache-2.0 \
   --language en --mode sft --output data/smoke-sft-prepared \
   --validation-fraction 0.2
 clearforge data pack --input data/smoke-sft-prepared --tokenizer data/smoke-tokenizer \

@@ -35,7 +35,7 @@ for conversation fine-tuning. Read each dataset card and its current terms befor
 selecting a version. Pin an immutable revision and retain the upstream split and
 any conversion procedure. These datasets are not downloaded automatically.
 
-The repository's examples are original, MIT-licensed small English fixtures. They verify the
+The repository's examples are original, Apache-2.0-licensed small English fixtures. They verify the
 workflow and cannot supply the breadth needed for a useful general chatbot.
 
 ## Split discipline

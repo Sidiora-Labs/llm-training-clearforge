@@ -143,3 +143,15 @@ requires = ["3.1"]
 touches = ["src/clearforge/data.py", "tests/test_data.py"]
 do_1 = "Reuse atomic no-replace directory publication"
 do_2 = "Prove a concurrent destination survives publication failure"
+
+[task.4.1]
+title = "Align Sidiora licensing and project presentation"
+status = "in_progress"
+wave = 4
+verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q tests/test_cli.py"
+requires = ["3.2"]
+touches = ["LICENSE", "README.md", "pyproject.toml", "docs/data.md", "docs/getting-started.md", "docs/development/quality.md", "docs/qualification.md", "CHANGELOG.md", "scripts/run_smoke.sh", "tests/test_cli.py"]
+reqs = ["1.1", "5.1"]
+do_1 = "Apply Apache-2.0 and Sidiora attribution consistently"
+do_2 = "match established README presentation"
+do_3 = "verify package license metadata and documentation links"

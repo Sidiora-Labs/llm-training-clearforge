@@ -2,7 +2,7 @@
 # Execute from the repository root after installing Clearforge.
 # Output directories must be new. This fixture checks mechanics, not chat quality.
 set -euo pipefail
-clearforge data prepare --source examples/pretrain.jsonl --license MIT \
+clearforge data prepare --source examples/pretrain.jsonl --license Apache-2.0 \
   --language en --mode pretrain --output data/smoke-prepared --validation-fraction 0.2
 clearforge tokenizer train --input data/smoke-prepared/train.jsonl \
   --output data/smoke-tokenizer --vocab-size 512
@@ -10,7 +10,7 @@ clearforge data pack --input data/smoke-prepared --tokenizer data/smoke-tokenize
   --output data/smoke-packed --seq-length 64 --mode pretrain
 clearforge train configs/smoke.toml --stop-after-steps 4
 clearforge train configs/smoke.toml --resume runs/smoke-pretrain/latest.pt
-clearforge data prepare --source examples/chat.jsonl --license MIT \
+clearforge data prepare --source examples/chat.jsonl --license Apache-2.0 \
   --language en --mode sft --output data/smoke-sft-prepared --validation-fraction 0.2
 clearforge data pack --input data/smoke-sft-prepared --tokenizer data/smoke-tokenizer \
   --output data/smoke-sft-packed --seq-length 64 --mode sft
