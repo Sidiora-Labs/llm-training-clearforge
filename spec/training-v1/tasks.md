@@ -54,13 +54,13 @@
   - [-] 6.3 Adapters and post-training objectives
     - Implement LoRA lifecycle, DPO, distillation, PPO, GRPO and CISPO training paths with real parameter update and objective tests
     - _Requirements: 4.1_
-  - [ ] 6.4 Portable model interchange
+  - [x] 6.4 Portable model interchange
     - Export and import standard Transformers compatible weights and tokenizer templates with logit equivalence checks
     - _Requirements: 5.1_
-  - [ ] 6.5 Tool conversations and corpus adapters
+  - [x] 6.5 Tool conversations and corpus adapters
     - Implement tool call and result schemas, reasoning fields, chat templates, preference and RL prompt adapters
     - _Requirements: 2.1_
-  - [ ] 6.6 Training throughput and distributed execution
+  - [x] 6.6 Training throughput and distributed execution
     - Add flexible weight initialization, compile, activation checkpointing, loading controls, progress and distributed training
     - _Requirements: 4.1_
   - [ ] 6.7 Integrate advanced commands and evaluations

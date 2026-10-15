@@ -101,6 +101,13 @@ class TrainConfig:
     eval_every: int = 100
     eval_batches: int = 10
     deterministic: bool = True
+    epochs: int | None = None
+    compile_model: bool = False
+    compile_backend: str = "inductor"
+    activation_checkpointing: bool = False
+    data_workers: int = 0
+    pin_memory: bool = False
+    log_every: int = 10
 
     def __post_init__(self) -> None:
         for name in (
@@ -113,6 +120,15 @@ class TrainConfig:
             "eval_batches",
         ):
             _integer(name, getattr(self, name))
+        if self.epochs is not None:
+            _integer("epochs", self.epochs)
+        _integer("data_workers", self.data_workers, 0)
+        _integer("log_every", self.log_every, 0)
+        for name in ("compile_model", "activation_checkpointing", "pin_memory"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        if self.compile_backend not in {"inductor", "eager", "aot_eager"}:
+            raise ValueError("compile_backend must be inductor, eager, or aot_eager")
         _integer("warmup_steps", self.warmup_steps, 0)
         _integer("seed", self.seed, 0)
         if self.warmup_steps > self.max_steps:

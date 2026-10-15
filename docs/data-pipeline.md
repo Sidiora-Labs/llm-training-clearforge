@@ -29,8 +29,9 @@ not a separate attention mask. Packing holds at most one encoded document plus a
 sequence buffer, and writes arrays through bounded chunks into memory-mapped files.
 
 Supervised chat remains isolated by conversation. Supported roles are an optional
-initial system message followed by alternating user and assistant messages. Tool
-roles are unsupported. Only assistant content and its EOS are supervised; user,
+initial system message followed by user and assistant messages, with validated tool
+call/result cycles where present. Tool results use a masked user boundary; extended
+assistant envelopes remain supervised. See [tool schemas and adapters](data.md#tool-conversations-and-reasoning-fields). Only assistant content and its EOS are supervised; user,
 system, role, padding and leading context tokens are ignored. An empty assistant
 message supervises EOS. Conversations without supervised targets and windows
 without shifted supervision are recorded in exclusion files.
