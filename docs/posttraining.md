@@ -107,3 +107,42 @@ and provenance in the native bundle format. LoRA updates are merged into the
 exported weights; the checkpoint retains the adapters and optimizer for resume.
 `PostTrainResult.model` exposes the trained model and `checkpoint`, `step` and
 `status` describe the committed result.
+
+## Command-line training
+
+Create `post.toml` alongside the intended output directory:
+
+```toml
+[training]
+output_path = "adapter-run"
+steps = 1000
+batch_size = 4
+learning_rate = 0.0001
+device = "cuda"
+
+[adapter]
+rank = 8
+alpha = 16
+dropout = 0.05
+targets = ["q_proj", "v_proj"]
+```
+
+```bash
+clearforge post-train --model runs/chat-export --data data/chat.jsonl \
+  --config post.toml --objective lora
+clearforge chat --model adapter-run/model --prompt "Hello!"
+clearforge merge-adapter --model runs/chat-export \
+  --adapter adapter-run/adapter --output runs/merged-export
+```
+
+The output directory is resolved relative to the TOML file. Other paths are
+resolved from the working directory. Every completed objective writes a native
+`model/` export. Adapter runs also write the reusable `adapter/` package.
+
+Select `sft`, `lora`, `dpo`, `distillation`, `ppo`, `grpo`, or `cispo` with
+`--objective`. DPO optionally accepts `--reference`; distillation requires
+`--teacher`. Online objectives take `--reward package.module:function` and a
+versioned `--reward-id`. The callable receives prompt messages and response
+text and returns a finite numeric reward. Keep reward code and data fixed when
+resuming. Resume with `--resume OUTPUT/latest.pt`; use `--stop-after-steps N`
+to pause at an optimizer boundary.

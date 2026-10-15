@@ -16,7 +16,64 @@ from .data import atomic_directory
 from .model import CausalLM
 from .tokenizer import SPECIAL_TOKENS, ChatTokenizer
 
-CHAT_TEMPLATE = r"""{{ bos_token }}{% for message in messages %}{% if message['role'] not in ['system', 'user', 'assistant'] %}{{ raise_exception('Unsupported message role') }}{% endif %}{% if message['role'] == 'system' and not loop.first %}{{ raise_exception('System message must be first') }}{% endif %}{% if not loop.first and message['role'] == messages[loop.index0 - 1]['role'] %}{{ raise_exception('Consecutive identical roles') }}{% endif %}{% if message['role'] == 'assistant' and (loop.first or messages[loop.index0 - 1]['role'] != 'user') %}{{ raise_exception('Assistant must follow user') }}{% endif %}{% for control in ['<|pad|>', '<|bos|>', '<|eos|>', '<|system|>', '<|user|>', '<|assistant|>'] %}{% if control in message['content'] %}{{ raise_exception('Literal reserved control tokens require the native tokenizer') }}{% endif %}{% endfor %}{{ '<|' + message['role'] + '|>' + message['content'] + eos_token }}{% endfor %}{% if add_generation_prompt %}{% if not messages or messages[-1]['role'] != 'user' %}{{ raise_exception('Generation prompt requires a final user message') }}{% endif %}{{ '<|assistant|>' }}{% endif %}"""
+CHAT_TEMPLATE = r"""{%- if not messages %}{{ raise_exception('Messages must be nonempty') }}{% endif -%}
+{%- set state = namespace(expected='user', pending=[], seen=[]) -%}
+{%- set controls = ['<|pad|>', '<|bos|>', '<|eos|>', '<|system|>', '<|user|>', '<|assistant|>'] -%}
+{{- bos_token -}}
+{%- if tools and messages[0]['role'] != 'system' -%}
+{%- set tool_text = '<clearforge_tools>\n' + (tools|tojson(ensure_ascii=false, sort_keys=true, separators=(',', ':'))) + '\n</clearforge_tools>' -%}
+{%- for control in controls %}{% if control in tool_text %}{{ raise_exception('Literal reserved control tokens require the native tokenizer') }}{% endif %}{% endfor -%}
+{{- '<|system|>' + tool_text + eos_token -}}
+{%- endif -%}
+{%- for message in messages -%}
+{%- set role = message['role'] -%}
+{%- if role not in ['system', 'user', 'assistant', 'tool'] %}{{ raise_exception('Unsupported message role') }}{% endif -%}
+{%- if role == 'system' -%}
+{%- if not loop.first %}{{ raise_exception('System message must be first') }}{% endif -%}
+{%- elif role != state.expected %}{{ raise_exception('Unexpected conversation role') }}{% endif -%}
+{%- set content = message.get('content') -%}
+{%- if content is none and role == 'assistant' and message.get('tool_calls') %}{% set content = '' %}{% endif -%}
+{%- if content is not string %}{{ raise_exception('Message content must be text') }}{% endif -%}
+{%- if role == 'user' %}{% set state.expected = 'assistant' %}{% endif -%}
+{%- if role == 'system' and tools %}{% set content = content + '\n\n<clearforge_tools>\n' + (tools|tojson(ensure_ascii=false, sort_keys=true, separators=(',', ':'))) + '\n</clearforge_tools>' %}{% endif -%}
+{%- if role == 'assistant' -%}
+{%- set payload = {'content': content} -%}
+{%- if 'reasoning_content' in message -%}
+{%- if message['reasoning_content'] is not string %}{{ raise_exception('Reasoning content must be text') }}{% endif -%}
+{%- set payload = dict(payload, reasoning_content=message['reasoning_content']) -%}
+{%- endif -%}
+{%- if 'tool_calls' in message -%}
+{%- if not message['tool_calls'] %}{{ raise_exception('Tool calls must be nonempty') }}{% endif -%}
+{%- set calls = namespace(items=[]) -%}
+{%- for call in message['tool_calls'] -%}
+{%- if call['function']['arguments'] is not mapping and call['function']['arguments'] is not string %}{{ raise_exception('Tool arguments must be mappings or canonical JSON strings') }}{% endif -%}
+{%- set arguments = call['function']['arguments'] if call['function']['arguments'] is string else call['function']['arguments']|tojson(ensure_ascii=false, sort_keys=true, separators=(',', ':')) -%}
+{%- if call['id'] in state.seen %}{{ raise_exception('Duplicate tool call ID') }}{% endif -%}
+{%- set state.seen = state.seen + [call['id']] -%}
+{%- set state.pending = state.pending + [call['id']] -%}
+{%- set function = {'name': call['function']['name'], 'arguments': arguments} -%}
+{%- set calls.items = calls.items + [{'id': call['id'], 'type': 'function', 'function': function}] -%}
+{%- endfor -%}
+{%- set payload = dict(payload, tool_calls=calls.items) -%}
+{%- set state.expected = 'tool' -%}
+{%- else %}{% set state.expected = 'user' %}{% endif -%}
+{%- if 'tool_calls' in message or 'reasoning_content' in message %}{% set content = '<clearforge_assistant>\n' + (payload|tojson(ensure_ascii=false, sort_keys=true, separators=(',', ':'))) + '\n</clearforge_assistant>' %}{% endif -%}
+{%- elif role == 'tool' -%}
+{%- if message['tool_call_id'] not in state.pending %}{{ raise_exception('Unknown or duplicate tool response ID') }}{% endif -%}
+{%- set state.pending = state.pending|reject('equalto', message['tool_call_id'])|list -%}
+{%- if not state.pending %}{% set state.expected = 'assistant' %}{% endif -%}
+{%- set content = '<clearforge_tool>\n' + ({'content': content, 'tool_call_id': message['tool_call_id']}|tojson(ensure_ascii=false, sort_keys=true, separators=(',', ':'))) + '\n</clearforge_tool>' -%}
+{%- set role = 'user' -%}
+{%- endif -%}
+{%- for control in controls %}{% if control in content %}{{ raise_exception('Literal reserved control tokens require the native tokenizer') }}{% endif %}{% endfor -%}
+{{- '<|' + role + '|>' + content + eos_token -}}
+{%- endfor -%}
+{%- if state.pending and messages[-1]['role'] != 'assistant' %}{{ raise_exception('Incomplete tool response batch') }}{% endif -%}
+{%- if add_generation_prompt -%}
+{%- if messages[-1]['role'] not in ['user', 'tool'] or state.pending %}{{ raise_exception('Generation prompt requires a user or completed tool responses') }}{% endif -%}
+{{- '<|assistant|>' -}}
+{%- endif -%}
+"""
 
 
 def _libraries():

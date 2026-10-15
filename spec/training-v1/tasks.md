@@ -51,7 +51,7 @@
   - [x] 6.2 Chat API and browser interface
     - Implement chat completion API with SSE, model listing, and browser conversations with generation controls
     - _Requirements: 5.1_
-  - [-] 6.3 Adapters and post-training objectives
+  - [x] 6.3 Adapters and post-training objectives
     - Implement LoRA lifecycle, DPO, distillation, PPO, GRPO and CISPO training paths with real parameter update and objective tests
     - _Requirements: 4.1_
   - [x] 6.4 Portable model interchange
@@ -63,7 +63,7 @@
   - [x] 6.6 Training throughput and distributed execution
     - Add flexible weight initialization, compile, activation checkpointing, loading controls, progress and distributed training
     - _Requirements: 4.1_
-  - [ ] 6.7 Integrate advanced commands and evaluations
+  - [-] 6.7 Integrate advanced commands and evaluations
     - Integrate commands, rollout backends and tool episodes, evaluation suites, tokenizer diagnostics and optional dependencies
     - _Requirements: 5.1_
 

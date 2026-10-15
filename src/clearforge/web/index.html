@@ -1,7 +1,131 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Clearforge — Local chat</title><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script></head>
-<body><aside><a class="brand" href="/">◈ Clearforge</a><p class="eyebrow">YOUR MODELS. YOUR MACHINE.</p><h1>A space to think.</h1><p class="intro">Talk with your locally trained model. Your conversation stays in this browser and on this server.</p>
-<label for="key">API key <span>if required</span></label><input id="key" type="password" autocomplete="off" placeholder="Enter server key"><button id="connect" class="secondary">Connect to server</button>
-<label for="model">Model</label><select id="model" aria-label="Model"></select><p id="context" class="hint"></p>
-<details open><summary>Generation settings</summary><label for="system">System instruction</label><textarea id="system" rows="3" placeholder="You are a helpful assistant."></textarea><div class="grid"><div><label for="max">Max tokens</label><input id="max" type="number" min="1" max="32768" value="128"></div><div><label for="temperature">Temperature</label><input id="temperature" type="number" min="0" max="2" step="0.1" value="0.7"></div><div><label for="top-p">Top p</label><input id="top-p" type="number" min="0.01" max="1" step="0.05" value="1"></div><div><label for="penalty">Repetition penalty</label><input id="penalty" type="number" min="0.1" max="10" step="0.1" value="1"></div></div></details><button id="reset" class="secondary">New conversation</button><small>Clearforge · Local inference</small></aside>
-<main><header><div><span class="dot"></span><span id="status" role="status">Connecting…</span></div><button id="regenerate" class="quiet" disabled>↻ Regenerate</button></header><section id="messages" aria-label="Conversation" aria-live="polite"><div id="welcome"><div class="emblem">◈</div><h2>What are you exploring?</h2><p>Ask a question, test an idea, or start a conversation.</p><div class="suggestions"><button data-prompt="Explain how a compiler works in simple terms.">Explain a concept ↗</button><button data-prompt="Help me plan a small programming project.">Plan something ↗</button></div></div></section><p id="error" role="alert" hidden></p><form id="composer"><label class="sr-only" for="prompt">Your message</label><textarea id="prompt" rows="2" placeholder="Message your model…" required></textarea><div class="composer-foot"><span>Enter to send · Shift + Enter for a new line</span><button id="stop" type="button" class="secondary" hidden>Stop</button><button id="send" type="submit">Send ↑</button></div></form><footer>Generated answers may be inaccurate. Check important details.</footer></main></body></html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Clearforge — Local chat</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <aside>
+      <div class="sidebar-head">
+        <a class="brand" href="/">◈ Clearforge</a
+        ><button
+          id="settings-toggle"
+          class="quiet mobile-toggle"
+          aria-expanded="false"
+          aria-controls="settings-panel"
+        >
+          Settings
+        </button>
+      </div>
+      <div id="settings-panel">
+        <p class="eyebrow">YOUR MODELS. YOUR MACHINE.</p>
+        <h1>A space to think.</h1>
+        <p class="intro">
+          Talk with your locally trained model. Your conversation stays in this
+          browser and on this server.
+        </p>
+        <label for="key">API key <span>if required</span></label
+        ><input
+          id="key"
+          type="password"
+          autocomplete="off"
+          placeholder="Enter server key"
+        /><button id="connect" class="secondary">Connect to server</button>
+        <label for="model">Model</label
+        ><select id="model" aria-label="Model"></select>
+        <p id="context" class="hint"></p>
+        <details open>
+          <summary>Generation settings</summary>
+          <label for="system">System instruction</label
+          ><textarea
+            id="system"
+            rows="3"
+            placeholder="You are a helpful assistant."
+          ></textarea>
+          <div class="grid">
+            <div>
+              <label for="max">Max tokens</label
+              ><input id="max" type="number" min="1" max="32768" value="128" />
+            </div>
+            <div>
+              <label for="temperature">Temperature</label
+              ><input
+                id="temperature"
+                type="number"
+                min="0"
+                max="2"
+                step="0.1"
+                value="0.7"
+              />
+            </div>
+            <div>
+              <label for="top-p">Top p</label
+              ><input
+                id="top-p"
+                type="number"
+                min="0.01"
+                max="1"
+                step="0.05"
+                value="1"
+              />
+            </div>
+            <div>
+              <label for="penalty">Repetition penalty</label
+              ><input
+                id="penalty"
+                type="number"
+                min="0.1"
+                max="10"
+                step="0.1"
+                value="1"
+              />
+            </div>
+          </div>
+        </details>
+        <button id="reset" class="secondary">New conversation</button
+        ><small>Clearforge · Local inference</small>
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <span class="dot"></span
+          ><span id="status" role="status">Connecting…</span>
+        </div>
+        <button id="regenerate" class="quiet" disabled>↻ Regenerate</button>
+      </header>
+      <section id="messages" aria-label="Conversation" aria-live="polite">
+        <div id="welcome">
+          <div class="emblem">◈</div>
+          <h2>What are you exploring?</h2>
+          <p>Ask a question, test an idea, or start a conversation.</p>
+          <div class="suggestions">
+            <button data-prompt="Explain how a compiler works in simple terms.">
+              Explain a concept ↗</button
+            ><button data-prompt="Help me plan a small programming project.">
+              Plan something ↗
+            </button>
+          </div>
+        </div>
+      </section>
+      <p id="error" role="alert" hidden></p>
+      <form id="composer">
+        <label class="sr-only" for="prompt">Your message</label
+        ><textarea
+          id="prompt"
+          rows="2"
+          placeholder="Message your model…"
+          required
+        ></textarea>
+        <div class="composer-foot">
+          <span>Enter to send · Shift + Enter for a new line</span
+          ><button id="stop" type="button" class="secondary" hidden>Stop</button
+          ><button id="send" type="submit">Send ↑</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

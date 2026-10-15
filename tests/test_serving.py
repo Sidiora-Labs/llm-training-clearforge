@@ -254,3 +254,128 @@ def test_seed_reproducibility_and_rng_isolation(app):
         ).json()
         assert a["choices"] == b["choices"]
         assert torch.equal(before, torch.get_rng_state())
+
+
+def tool_fixture():
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+            },
+        }
+    ]
+    call = {"id": "call_1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
+    return tools, call
+
+
+def test_real_model_accepts_schema_and_tool_result_history(app):
+    model, tok = app.state.models["tiny"]
+    # Same real native weights, a larger supported context for the JSON schema.
+    model.config = dataclasses.replace(model.config, max_seq_len=1024)
+    tools, call = tool_fixture()
+    messages = [
+        {"role": "user", "content": "Look up the value."},
+        {"role": "assistant", "content": None, "tool_calls": [call]},
+        {"role": "tool", "tool_call_id": "call_1", "content": "5"},
+    ]
+    expected, _ = tok.encode_chat(messages, tools=tools, add_generation_prompt=True)
+    with TestClient(app) as client:
+        response = client.post("/v1/chat/completions", json=query(messages=messages, tools=tools))
+        assert response.status_code == 200, response.text
+        assert response.json()["usage"]["prompt_tokens"] == len(expected)
+        messages[-1]["tool_call_id"] = "orphan"
+        bad = client.post(
+            "/v1/chat/completions", json=query(messages=messages, tools=tools, stream=True)
+        )
+        assert bad.status_code == 400
+
+
+def test_tool_response_stream_protocol_and_nonstream(app, monkeypatch):
+    from clearforge.tools import serialize_messages
+
+    model, tok = app.state.models["tiny"]
+    model.config = dataclasses.replace(model.config, max_seq_len=1024)
+    tools, call = tool_fixture()
+    messages = [
+        {"role": "user", "content": "Look up the value."},
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "A lookup is needed.",
+            "tool_calls": [call],
+        },
+    ]
+    response_text = serialize_messages(messages, tools=tools)[-1][1]
+
+    # Fixed token fixture isolates protocol framing; real-model generation is tested separately.
+    def fixed_tokens(*args, **kwargs):
+        for token in tok.encode(response_text) + [tok.eos_id]:
+            yield torch.tensor([[token]])
+
+    monkeypatch.setattr(model, "stream_generate", fixed_tokens)
+    with TestClient(app) as client:
+        normal = client.post("/v1/chat/completions", json=query(tools=tools)).json()
+        assert normal["choices"][0]["finish_reason"] == "tool_calls"
+        assert normal["choices"][0]["message"]["tool_calls"] == [call]
+        assert normal["choices"][0]["message"]["reasoning_content"] == "A lookup is needed."
+        streamed = client.post("/v1/chat/completions", json=query(tools=tools, stream=True))
+        parts = events(streamed)
+        deltas = [p["choices"][0]["delta"] for p in parts]
+        assert any(d.get("tool_calls") == [{"index": 0, **call}] for d in deltas)
+        assert all("<clearforge_assistant>" not in d.get("content", "") for d in deltas)
+        assert parts[-1]["choices"][0]["finish_reason"] == "tool_calls"
+        forbidden = client.post("/v1/chat/completions", json=query(tools=tools, tool_choice="none"))
+        assert forbidden.status_code == 500
+
+
+def test_malformed_generated_tool_arguments_fail_stream(app, monkeypatch):
+    from clearforge.tools import ASSISTANT_CLOSE, ASSISTANT_OPEN
+
+    model, tok = app.state.models["tiny"]
+    model.config = dataclasses.replace(model.config, max_seq_len=1024)
+    tools, call = tool_fixture()
+    call["function"]["name"] = "not_declared"
+    text = ASSISTANT_OPEN + json.dumps({"content": "", "tool_calls": [call]}) + ASSISTANT_CLOSE
+
+    def fixed_tokens(*args, **kwargs):
+        for token in tok.encode(text) + [tok.eos_id]:
+            yield torch.tensor([[token]])
+
+    monkeypatch.setattr(model, "stream_generate", fixed_tokens)
+    with TestClient(app) as client:
+        result = client.post("/v1/chat/completions", json=query(tools=tools, stream=True))
+        assert any("error" in part for part in events(result))
+        assert not any(
+            p.get("choices", [{}])[0].get("delta", {}).get("tool_calls")
+            for p in events(result)
+            if "choices" in p
+        )
+
+
+def test_generated_call_id_cannot_reuse_history(app, monkeypatch):
+    from clearforge.tools import serialize_messages
+
+    model, tok = app.state.models["tiny"]
+    model.config = dataclasses.replace(model.config, max_seq_len=1024)
+    tools, call = tool_fixture()
+    messages = [
+        {"role": "user", "content": "Look up"},
+        {"role": "assistant", "content": "", "tool_calls": [call]},
+        {"role": "tool", "tool_call_id": call["id"], "content": "5"},
+    ]
+    reply = serialize_messages([messages[0], messages[1]], tools=tools)[-1][1]
+
+    def fixed_tokens(*args, **kwargs):
+        for token in tok.encode(reply) + [tok.eos_id]:
+            yield torch.tensor([[token]])
+
+    monkeypatch.setattr(model, "stream_generate", fixed_tokens)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat/completions", json=query(messages=messages, tools=tools, stream=True)
+        )
+        assert any("error" in event for event in events(response))
+        assert app.state.last_generation.finished.wait(2)
+        assert not app.state.generation_lock.locked()

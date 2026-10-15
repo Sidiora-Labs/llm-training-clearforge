@@ -239,10 +239,10 @@ do_1 = "Add flexible weight initialization, compile, activation checkpointing, l
 
 [task.6.7]
 title = "Integrate advanced commands and evaluations"
-status = "pending"
+status = "in_progress"
 wave = 8
 verify_cmd = "/home/ubuntu/.venvs/clearforge/bin/python -m pytest -q"
 requires = ["6.2", "6.3", "6.4", "6.5", "6.6"]
-touches = ["src/clearforge/cli.py", "src/clearforge/evaluation.py", "src/clearforge/rollout.py", "pyproject.toml", "tests/test_cli.py", "tests/test_evaluation.py", "tests/test_rollout.py", "README.md", "docs/**", "configs/*"]
+touches = ["src/clearforge/cli.py", "src/clearforge/web/*", "tests/browser_smoke.py", "docs/training.md", "src/clearforge/model.py", "tests/test_generation.py", "src/clearforge/evaluation.py", "src/clearforge/rollout.py", "src/clearforge/agent_training.py", "tests/test_agent_training.py", "docs/agent-training.md", "src/clearforge/posttraining.py", "tests/test_posttraining.py", "pyproject.toml", "tests/test_cli.py", "tests/test_evaluation.py", "tests/test_rollout.py", "README.md", "CHANGELOG.md", "docs/model.md", "docs/evaluation.md", "docs/rollout.md", "docs/interchange.md", "docs/serving.md", "docs/posttraining.md", "examples/evaluation.jsonl", "src/clearforge/interchange.py", "tests/test_interchange.py", "src/clearforge/serving.py", "tests/test_serving.py"]
 reqs = ["5.1"]
 do_1 = "Integrate commands, rollout backends and tool episodes, evaluation suites, tokenizer diagnostics and optional dependencies"

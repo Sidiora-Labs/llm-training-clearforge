@@ -141,9 +141,15 @@ class SparseExperts(nn.Module):
         self.router = nn.Linear(config.hidden_size, config.num_experts, bias=False)
         self.experts = nn.ModuleList(SwiGLU(config) for _ in range(config.num_experts))
 
+    def _route_probabilities(self, x: Tensor) -> Tensor:
+        # Ranking experts is discontinuous: retain projection precision, not just
+        # softmax precision. Casts also preserve gradients for half-stored weights.
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            return F.linear(x.float(), self.router.weight.float()).softmax(-1)
+
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         flat = x.reshape(-1, x.shape[-1])
-        probabilities = self.router(flat).float().softmax(-1)
+        probabilities = self._route_probabilities(flat)
         weights, indices = probabilities.topk(self.config.experts_per_token, dim=-1)
         weights = weights / weights.sum(-1, keepdim=True)
         output = torch.zeros_like(flat)

@@ -193,3 +193,76 @@ def test_sparse_expert_posttraining_resume(setup):
     paused = train_posttraining(model, tok, rows, cfg2, objective="sft", stop_after_steps=1)
     resumed = train_posttraining(model, tok, rows, cfg2, objective="sft", resume=paused.checkpoint)
     same(full.model.state_dict(), resumed.model.state_dict())
+
+
+def test_tool_schemas_and_structured_targets_reach_objectives(setup):
+    from clearforge.tools import serialize_messages
+
+    model, tok, cfg, _ = setup
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+            },
+        }
+    ]
+    call = {"id": "c1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
+    messages = [
+        {"role": "user", "content": "Question"},
+        {"role": "assistant", "content": "", "tool_calls": [call]},
+    ]
+    row = {"messages": messages, "tools": tools}
+    assert _encode(row, tok, "sft") == tok.encode_chat(messages, tools=tools)
+    pair = {
+        "chosen": messages,
+        "rejected": [messages[0], {"role": "assistant", "content": "No."}],
+        "tools": tools,
+    }
+    chosen, rejected = _encode(pair, tok, "dpo")
+    target = serialize_messages(messages, tools=tools)[-1][1]
+    assert [v for v in chosen[1] if v != -100] == tok.encode(target) + [tok.eos_id]
+    prompt = _encode({"messages": messages[:1], "tools": tools}, tok, "grpo")
+    assert prompt["tools"] == tools and prompt["messages"] == messages[:1]
+    # One real tool-SFT update verifies the forwarded schema survives the driver.
+    larger = CausalLM(dataclasses.replace(model.config, max_seq_len=1024))
+    larger.load_state_dict(model.state_dict())
+    before = copy.deepcopy(larger.state_dict())
+    result = train_posttraining(
+        larger, tok, [row], dataclasses.replace(cfg, steps=1), objective="sft"
+    )
+    assert any(not torch.equal(v, before[k]) for k, v in result.model.state_dict().items())
+
+
+def test_online_tool_prompt_schema_reaches_real_rollout(setup, monkeypatch):
+    model, tok, cfg, _ = setup
+    tools = [
+        {
+            "type": "function",
+            "function": {"name": "lookup", "parameters": {"type": "object", "properties": {}}},
+        }
+    ]
+    prompt = [{"role": "user", "content": "Question"}]
+    larger = CausalLM(dataclasses.replace(model.config, max_seq_len=1024))
+    larger.load_state_dict(model.state_dict())
+    expected, _ = tok.encode_chat(prompt, tools=tools, add_generation_prompt=True)
+    original = CausalLM.generate
+    observed = []
+
+    def capture(self, ids, **kwargs):
+        observed.append(ids[0].tolist())
+        return original(self, ids, **kwargs)
+
+    monkeypatch.setattr(CausalLM, "generate", capture)
+    result = train_posttraining(
+        larger,
+        tok,
+        [{"messages": prompt, "tools": tools}],
+        dataclasses.replace(cfg, steps=1, max_new_tokens=2),
+        objective="grpo",
+        reward_fn=lambda messages, response: float(len(response)),
+        reward_id="length-v1",
+    )
+    assert result.step == 1
+    assert observed and all(ids == expected for ids in observed)

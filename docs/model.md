@@ -70,7 +70,12 @@ Set `num_experts` above zero to replace each dense feed-forward layer with a
 router and independent SwiGLU experts. `experts_per_token` selects the top-k
 experts. Their softmax probabilities are renormalized over the selected set.
 Experts process only their assigned tokens; outputs are combined with their
-routing weights. Attention remains dense.
+routing weights. Attention remains dense. Router projection and softmax run in
+float32 even during mixed-precision inference or training. This avoids quantizing
+near-tied router scores before top-k selection. Expert selection remains discrete:
+small upstream mixed-precision differences can still change an assignment at a
+routing boundary, so mixed-precision cached inference is not bitwise equivalent
+to a full-sequence pass.
 
 `router_aux_loss_coef` scales the load-balancing objective. For each layer it is
 `coefficient * num_experts * sum(mean_assignment * mean_router_probability)`.
