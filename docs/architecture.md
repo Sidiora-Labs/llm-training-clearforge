@@ -13,8 +13,9 @@ flowchart LR
     D --> E
     E --> F[Decoder optimization]
     F --> G[Atomic checkpoint]
-    G --> H[Validation and chat]
+    G --> H[Validation]
     G --> I[Portable native bundle]
+    I --> J[Chat generation]
 ```
 
 ## Component ownership

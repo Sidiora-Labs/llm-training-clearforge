@@ -11,9 +11,9 @@ require coordination with the component owners and matching integration tests.
   intermediate_size, max_seq_len, dropout, rope_theta, tie_embeddings.
 - `TrainConfig`: max_steps, batch_size, accumulation_steps, learning_rate,
   weight_decay, warmup_steps, min_lr_ratio, grad_clip, seed, device, precision,
-  save_every, eval_every, eval_batches, deterministic.
+  save_every, eval_every, eval_batches, deterministic, keep_checkpoints.
 - `RunConfig`: model, training, data_dir, tokenizer_path, output_dir, stage
-  (`pretrain` or `sft`), init_checkpoint (optional), hf_model (optional).
+  (`pretrain` or `sft`), init_checkpoint (optional).
 
 Run paths resolve relative to the configuration file. Reject unknown keys,
 invalid dimensions and invalid optimization parameters before allocating a model.
@@ -24,14 +24,14 @@ invalid dimensions and invalid optimization parameters before allocating a model
 seed, mode)` accepts `SourceSpec(path, license, language='en')` and creates
 `train.jsonl`, `validation.jsonl`, and `manifest.json`. Inputs are UTF-8 JSONL:
 pretraining records have `text`; supervised chat records have `messages` with
-`role` and `content`. Validation splits are document-level and content-disjoint.
+`role` and `content`. Validation splits are disjoint for exact canonical complete records.
 Source hashes, licensing, exclusions, and split hashes are recorded. No inference
 service or private conversation corpus is used implicitly.
 
 `clearforge.tokenizer.train_tokenizer(train_path, output_dir, *, vocab_size,
 min_frequency=2)` returns the saved tokenizer path. `ChatTokenizer.load(path)`
 returns an object exposing `vocab_size`, `pad_id`, `bos_id`, `eos_id`,
-`encode(text)`, `decode(ids)`, `save(path)`, and
+`encode(text)`, `decode(ids, *, skip_special_tokens=False)`, `save(path)`, and
 `encode_chat(messages, *, add_generation_prompt=False) -> (ids, labels)`.
 Labels align with input IDs; user/system/padding labels are -100. The model,
 not the dataset, applies the one-token next-token shift. Define role tokens
@@ -42,7 +42,7 @@ seq_length, mode)` produces memory-mappable arrays named
 `train.input_ids.npy`, `train.labels.npy`, `validation.input_ids.npy`, and
 `validation.labels.npy`, plus `manifest.json` with tokenizer and source hashes,
 vocabulary size, sequence length, mode, and row counts. Tokenizer training uses
-only training records. Pretraining may pack documents with EOS boundaries.
+only training records. Pretraining packs documents with BOS/EOS boundaries and shared causal attention.
 SFT must preserve assistant-only labels and exclude windows with no shifted
 supervision. Never silently truncate a conversation. Explicitly record any
 exclusions. `PackedDataset(data_dir, split)` implements length/getitem returning
@@ -53,18 +53,16 @@ exclusions. `PackedDataset(data_dir, split)` implements length/getitem returning
 `clearforge.model.CausalLM(ModelConfig)` is a PyTorch module.
 `forward(input_ids, labels=None)` returns an object with `.logits` and `.loss`.
 It uses causal SDPA, RoPE, RMSNorm, SwiGLU, grouped-query attention and optional
-tied embeddings. Ignore -100 labels and shift labels once. Do not allocate
-full logits when only training loss can be computed more economically unless
-that optimization is tested. Validate sequence length and head divisibility.
+tied embeddings. Ignore -100 labels and shift labels once. The current implementation materializes full sequence logits; memory planning
+must include them. Validate sequence length and head divisibility.
 Provide `parameter_count()` and `generate(input_ids, *, max_new_tokens,
 temperature=0.0, top_k=None, eos_token_id=None)` for batch-one or documented
 batch behavior, with context-bound checks and EOS stopping.
 
 ## Training and checkpoints
 
-`clearforge.training.train(config, *, resume=None)` orchestrates native model
-training and optional Hugging Face causal-LM fine-tuning (the latter may require
-the explicit optional dependency). CPU float32 works; CUDA bf16/fp16 are
+`clearforge.training.train(config, *, resume=None, stop_after_steps=None)`
+orchestrates native pretraining or supervised fine-tuning. CPU float32 works; CUDA bf16/fp16 are
 capability-checked. Training steps count optimizer updates. Implement AdamW,
 correct accumulation including final partial batches, warmup/cosine scheduling,
 clipping, validation, and JSONL metrics. Reject all-ignored supervision and
