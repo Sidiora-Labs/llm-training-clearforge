@@ -270,7 +270,7 @@ def train_agent_policy(
                 if step
                 else (0, 0)
             )
-            if (cursor.epoch, cursor.position) != expected or cursor.order != cursor._order():
+            if (cursor.epoch, cursor.position) != expected or not cursor.order_is_consistent():
                 raise ValueError("checkpoint cursor is inconsistent")
         if any(not torch.isfinite(p).all() for p in policy.parameters()):
             raise ValueError("policy contains nonfinite weights")

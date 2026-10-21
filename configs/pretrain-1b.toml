@@ -1,4 +1,8 @@
-# Nominal size; inspect the exact parameter count with clearforge doctor.
+# Billion-parameter pretraining preset: 1,041,852,416 parameters with the
+# shipped 32,768-token vocabulary. Each update sees 262,144 tokens; 80,000
+# updates cover about 21 billion tokens, roughly 20 tokens per parameter.
+# Estimate memory, checkpoint size and disk with `clearforge plan` before
+# launching, and see docs/scaling.md for hardware guidance.
 stage = "pretrain"
 data_dir = "../data/packed-pretrain"
 tokenizer_path = "../data/tokenizer/tokenizer.json"
@@ -17,18 +21,28 @@ rope_theta = 10000.0
 tie_embeddings = true
 
 [training]
-max_steps = 10000
-batch_size = 1
-accumulation_steps = 32
-learning_rate = 0.0003
+max_steps = 80000
+batch_size = 4
+accumulation_steps = 64
+learning_rate = 0.0004
 weight_decay = 0.1
-warmup_steps = 100
+warmup_steps = 2000
 min_lr_ratio = 0.1
+lr_schedule = "cosine"
 grad_clip = 1.0
+adam_beta1 = 0.9
+adam_beta2 = 0.95
+adam_epsilon = 1e-8
+optimizer_fused = true
 seed = 42
 device = "auto"
 precision = "bf16"
-save_every = 100
-eval_every = 100
-eval_batches = 10
+activation_checkpointing = true
+data_workers = 4
+pin_memory = true
+save_every = 1000
+eval_every = 1000
+eval_batches = 32
+keep_checkpoints = 3
 deterministic = true
+log_every = 10

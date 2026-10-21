@@ -43,9 +43,10 @@ from .checkpoint import (
     publish_latest,
     restore_rng_state,
 )
-from .config import ModelConfig, RunConfig
+from .config import ModelConfig, RunConfig, TrainConfig
 from .data import PackedDataset
 from .model import CausalLM
+from .planning import GIB, plan_run, summarize
 from .tokenizer import ChatTokenizer
 
 
@@ -233,17 +234,100 @@ def _autocast(config: RunConfig, device: torch.device) -> Any:
     return torch.autocast(device_type=device.type, dtype=dtype)
 
 
-def learning_rate_factor(index: int, *, max_steps: int, warmup_steps: int, minimum: float) -> float:
-    """Multiplier for zero-based optimizer update index; last decay update reaches minimum."""
+def learning_rate_factor(
+    index: int,
+    *,
+    max_steps: int,
+    warmup_steps: int,
+    minimum: float,
+    schedule: str = "cosine",
+    decay_steps: int | None = None,
+) -> float:
+    """Multiplier for a zero-based optimizer update index.
+
+    Warmup rises linearly to the peak over ``warmup_steps`` updates. The decay
+    phase covers the final ``decay_steps`` updates (every post-warmup update
+    when unset); the update before it holds the peak, and the last decay update
+    reaches ``minimum``. ``cosine`` and ``linear`` are the classic shapes;
+    ``wsd`` is a ``1 - sqrt`` cooldown after a stable phase; ``constant`` never
+    decays.
+    """
     if index < warmup_steps:
         return (index + 1) / warmup_steps
-    decay_steps = max_steps - warmup_steps
-    progress = min(1.0, max(0.0, (index - warmup_steps) / max(1, decay_steps - 1)))
-    return minimum + (1.0 - minimum) * 0.5 * (1.0 + math.cos(math.pi * progress))
+    if schedule == "constant":
+        return 1.0
+    if decay_steps is None:
+        decay_steps = max_steps - warmup_steps
+    start = max_steps - decay_steps
+    if index < start:
+        return 1.0
+    progress = min(1.0, max(0.0, (index - start) / max(1, decay_steps - 1)))
+    if schedule == "cosine":
+        shape = 0.5 * (1.0 + math.cos(math.pi * progress))
+    elif schedule == "linear":
+        shape = 1.0 - progress
+    elif schedule == "wsd":
+        shape = 1.0 - math.sqrt(progress)
+    else:
+        raise ValueError(f"unknown learning-rate schedule: {schedule}")
+    return minimum + (1.0 - minimum) * shape
+
+
+def schedule_factor(training: TrainConfig, index: int) -> float:
+    """Learning-rate multiplier of a configuration at an optimizer update index."""
+    return learning_rate_factor(
+        index,
+        max_steps=training.max_steps,
+        warmup_steps=training.warmup_steps,
+        minimum=training.min_lr_ratio,
+        schedule=training.lr_schedule,
+        decay_steps=training.decay_steps,
+    )
+
+
+def build_optimizer(model: torch.nn.Module, training: TrainConfig) -> torch.optim.AdamW:
+    """AdamW with decoupled decay on matrices only; norm weights are never decayed.
+
+    Parameter groups are named so a checkpoint can be audited against the
+    configuration that produced it. The fused kernel is requested only when
+    configured; the default foreach implementation stays otherwise.
+    """
+    decay, no_decay = [], []
+    for parameter in model.parameters():
+        if not parameter.requires_grad:
+            continue
+        (decay if parameter.ndim >= 2 else no_decay).append(parameter)
+    groups: list[dict[str, Any]] = []
+    if decay:
+        groups.append({"params": decay, "weight_decay": training.weight_decay, "name": "decay"})
+    if no_decay:
+        groups.append({"params": no_decay, "weight_decay": 0.0, "name": "no_decay"})
+    if not groups:
+        raise ValueError("model has no trainable parameters")
+    options: dict[str, Any] = {}
+    if training.optimizer_fused:
+        options["fused"] = True
+    return torch.optim.AdamW(
+        groups,
+        lr=training.learning_rate,
+        betas=(training.adam_beta1, training.adam_beta2),
+        eps=training.adam_epsilon,
+        weight_decay=training.weight_decay,
+        **options,
+    )
+
+
+def _expected_group_decay(group: dict[str, Any], training: TrainConfig) -> float | None:
+    """Weight decay a named optimizer group must carry; None for an unknown group."""
+    return {"decay": training.weight_decay, "no_decay": 0.0}.get(group.get("name"))
 
 
 class _DataCursor:
-    """Checkpointed epoch permutation and position, independent of model RNG."""
+    """Checkpointed epoch permutation and position, independent of model RNG.
+
+    The permutation is held as an int64 tensor so that corpora with tens of
+    millions of rows stay compact in memory and inside checkpoints.
+    """
 
     def __init__(self, size: int, seed: int, state: dict[str, Any] | None = None):
         self.size, self.seed = size, seed
@@ -251,7 +335,7 @@ class _DataCursor:
             self.epoch, self.position = 0, 0
             self.order = self._order()
         else:
-            self.epoch, self.position, self.order = (
+            self.epoch, self.position, order = (
                 state["epoch"],
                 state["position"],
                 state["order"],
@@ -261,15 +345,22 @@ class _DataCursor:
                 or self.epoch < 0
                 or type(self.position) is not int
                 or not 0 <= self.position <= size
-                or not isinstance(self.order, list)
-                or any(type(index) is not int for index in self.order)
-                or sorted(self.order) != list(range(size))
+                or not isinstance(order, torch.Tensor)
+                or order.dtype != torch.int64
+                or order.ndim != 1
+                or order.numel() != size
+                or not torch.equal(torch.sort(order).values, torch.arange(size))
             ):
                 raise ValueError("invalid checkpoint data cursor")
+            self.order = order.clone()
 
-    def _order(self) -> list[int]:
+    def _order(self) -> Tensor:
         generator = torch.Generator().manual_seed((self.seed + self.epoch) % (2**63))
-        return torch.randperm(self.size, generator=generator).tolist()
+        return torch.randperm(self.size, generator=generator)
+
+    def order_is_consistent(self) -> bool:
+        """True when the stored permutation is the one its seed and epoch imply."""
+        return torch.equal(self.order, self._order())
 
     def group(self, batch_size: int, accumulation: int) -> list[list[int]]:
         if self.position == self.size:
@@ -281,12 +372,12 @@ class _DataCursor:
             if self.position == self.size:
                 break
             end = min(self.size, self.position + batch_size)
-            batches.append(self.order[self.position : end])
+            batches.append(self.order[self.position : end].tolist())
             self.position = end
         return batches
 
     def state_dict(self) -> dict[str, Any]:
-        return {"epoch": self.epoch, "position": self.position, "order": list(self.order)}
+        return {"epoch": self.epoch, "position": self.position, "order": self.order.clone()}
 
 
 def _batch(dataset: PackedDataset, indices: list[int], device: torch.device) -> dict[str, Tensor]:
@@ -400,7 +491,7 @@ def _validate_loaded_state(
         raise ValueError("checkpoint scheduler does not match optimizer step")
     schedule = scheduler.state_dict()
     if (
-        schedule["base_lrs"] != [config.training.learning_rate]
+        schedule["base_lrs"] != [config.training.learning_rate] * len(optimizer.param_groups)
         or schedule["_step_count"] != step + 1
         or schedule["_last_lr"] != [g["lr"] for g in optimizer.param_groups]
     ):
@@ -415,7 +506,7 @@ def _validate_loaded_state(
         or not 0 <= scale["_growth_tracker"] < 2000
     ):
         raise ValueError("checkpoint gradient scaler state is invalid")
-    if cursor.order != cursor._order():
+    if not cursor.order_is_consistent():
         raise ValueError("checkpoint data permutation does not match its epoch and seed")
     stride = config.training.batch_size * config.training.accumulation_steps
     updates_per_epoch = math.ceil(cursor.size / stride)
@@ -425,19 +516,27 @@ def _validate_loaded_state(
     )
     if (cursor.epoch, cursor.position) != (expected_epoch, expected_position):
         raise ValueError("checkpoint cursor does not match optimizer progress")
-    expected_lr = config.training.learning_rate * learning_rate_factor(
-        step,
-        max_steps=config.training.max_steps,
-        warmup_steps=config.training.warmup_steps,
-        minimum=config.training.min_lr_ratio,
-    )
+    expected_lr = config.training.learning_rate * schedule_factor(config.training, step)
     parameter_names = {id(parameter): name for name, parameter in model.named_parameters()}
+    training = config.training
     for group in optimizer.param_groups:
-        if group["lr"] != expected_lr or group["weight_decay"] != config.training.weight_decay:
+        expected_decay = _expected_group_decay(group, training)
+        if (
+            expected_decay is None
+            or group["lr"] != expected_lr
+            or group["weight_decay"] != expected_decay
+        ):
             raise ValueError("checkpoint optimizer hyperparameters do not match configuration")
-        if group["betas"] != (0.9, 0.999) or group["eps"] != 1e-8 or group["amsgrad"]:
+        if (
+            tuple(group["betas"]) != (training.adam_beta1, training.adam_beta2)
+            or group["eps"] != training.adam_epsilon
+            or group["amsgrad"]
+            or bool(group.get("fused")) != training.optimizer_fused
+        ):
             raise ValueError("checkpoint AdamW settings do not match this trainer")
         for parameter in group["params"]:
+            if (parameter.ndim >= 2) != (group["name"] == "decay"):
+                raise ValueError("checkpoint optimizer group membership is invalid")
             state = optimizer.state.get(parameter, {})
             if step == 0:
                 if state:
@@ -460,6 +559,77 @@ def _validate_loaded_state(
                     raise ValueError("checkpoint optimizer moment shape or values are invalid")
                 if name == "exp_avg_sq" and (moment < 0).any().item():
                     raise ValueError("checkpoint second moments must be nonnegative")
+
+
+def _preflight(config: RunConfig, device: torch.device, *, world_size: int = 1) -> dict[str, Any]:
+    """Plan the run, refuse an output volume that cannot hold a checkpoint, warn otherwise."""
+    plan = plan_run(
+        config,
+        world_size=world_size,
+        device_type=device.type,
+        device_memory_bytes=(torch.cuda.mem_get_info(device)[1] if device.type == "cuda" else None),
+    )
+    if plan["disk"]["one_checkpoint_fits"] is False:
+        raise OSError(
+            f"insufficient disk space for a checkpoint: {plan['disk']['free_bytes'] / GIB:.2f} "
+            f"GiB free under {config.output_dir}, {plan['checkpoint']['bytes'] / GIB:.2f} GiB "
+            "needed"
+        )
+    print(json.dumps({"plan": summarize(plan)}), file=sys.stderr, flush=True)
+    for warning in plan["warnings"]:
+        print(json.dumps({"warning": warning}), file=sys.stderr, flush=True)
+    return plan
+
+
+@contextlib.contextmanager
+def _memory_guidance(plan: dict[str, Any] | None) -> Iterator[None]:
+    """Turn an accelerator out-of-memory failure into actionable guidance."""
+    try:
+        yield
+    except torch.OutOfMemoryError as error:
+        estimate = ""
+        if plan is not None:
+            memory = plan["memory"]
+            estimate = (
+                f"; the plan estimated {memory['estimated_total_bytes'] / GIB:.1f} GiB "
+                f"(activations {memory['activations_bytes'] / GIB:.1f} GiB, logits "
+                f"{memory['logits_bytes'] / GIB:.1f} GiB)"
+            )
+        raise RuntimeError(
+            f"out of accelerator memory{estimate}: reduce batch_size, enable "
+            "activation_checkpointing, or shard across torchrun ranks"
+        ) from error
+
+
+def _progress_record(
+    *,
+    step: int,
+    config: RunConfig,
+    loss: float | None,
+    learning_rate: float,
+    gradient_norm: float,
+    epoch: int,
+    tokens_per_second: float,
+    eta_seconds: float,
+    parameters: int,
+    device: torch.device,
+) -> dict[str, Any]:
+    """Operator-facing throughput record; the metrics journal stays deterministic."""
+    record: dict[str, Any] = {
+        "step": step,
+        "max_steps": config.training.max_steps,
+        "epoch": epoch,
+        "loss": loss,
+        "learning_rate": learning_rate,
+        "gradient_norm": gradient_norm,
+        "tokens_per_second": tokens_per_second,
+        "tflops": 6 * parameters * tokens_per_second / 1e12,
+        "eta_seconds": eta_seconds,
+    }
+    if device.type == "cuda":
+        record["max_memory_allocated_gib"] = torch.cuda.max_memory_allocated(device) / GIB
+        record["max_memory_reserved_gib"] = torch.cuda.max_memory_reserved(device) / GIB
+    return record
 
 
 def _enable_activation_checkpointing(model: CausalLM) -> None:
@@ -571,19 +741,9 @@ def train(
             if config.training.data_workers
             else None
         )
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=config.training.learning_rate,
-            weight_decay=config.training.weight_decay,
-        )
+        optimizer = build_optimizer(model, config.training)
         scheduler = torch.optim.lr_scheduler.LambdaLR(
-            optimizer,
-            lambda index: learning_rate_factor(
-                index,
-                max_steps=config.training.max_steps,
-                warmup_steps=config.training.warmup_steps,
-                minimum=config.training.min_lr_ratio,
-            ),
+            optimizer, lambda index: schedule_factor(config.training, index)
         )
         scaler = torch.amp.GradScaler("cuda", enabled=config.training.precision == "fp16")
         cursor = _DataCursor(
@@ -605,6 +765,7 @@ def train(
             run_id = uuid.uuid4().hex
         if not payload:
             _validate_loaded_state(model, optimizer, scheduler, cursor, config, step, scaler)
+        plan = _preflight(config, device)
         # All compatibility checks and state loading precede output mutations.
         if payload is None:
             output.mkdir(parents=True, exist_ok=False)
@@ -615,6 +776,7 @@ def train(
                 "config": config.to_dict(),
                 "identities": identities,
                 "initial_checkpoint_sha256": initial_hash,
+                "plan": plan,
             }
             atomic_write_bytes(_json_bytes(run_manifest), output / "run.json")
         metrics_path = output / "metrics.jsonl"
@@ -654,12 +816,13 @@ def train(
                 if old != checkpoint and old.stem[5:].isdigit():
                     old.unlink()
 
-        with _stop_signals() as stop:
+        with _stop_signals() as stop, _memory_guidance(plan):
             save()
             model.train()
             started = time.monotonic()
             initial_step = step
             processed_tokens = 0
+            parameter_total = model.parameter_count()
             while step < config.training.max_steps:
                 if stop["requested"] or (stop_after_steps is not None and step >= stop_after_steps):
                     break
@@ -736,13 +899,18 @@ def train(
                 ):
                     elapsed = max(time.monotonic() - started, 1e-9)
                     updates_per_second = (step - initial_step) / elapsed
-                    progress = {
-                        "step": step,
-                        "max_steps": config.training.max_steps,
-                        "loss": train_loss,
-                        "tokens_per_second": processed_tokens / elapsed,
-                        "eta_seconds": (config.training.max_steps - step) / updates_per_second,
-                    }
+                    progress = _progress_record(
+                        step=step,
+                        config=config,
+                        loss=train_loss,
+                        learning_rate=update_lr,
+                        gradient_norm=float(norm.item()),
+                        epoch=cursor.epoch,
+                        tokens_per_second=processed_tokens / elapsed,
+                        eta_seconds=(config.training.max_steps - step) / updates_per_second,
+                        parameters=parameter_total,
+                        device=device,
+                    )
                     print(json.dumps(progress), file=sys.stderr, flush=True)
             save()
             status = (

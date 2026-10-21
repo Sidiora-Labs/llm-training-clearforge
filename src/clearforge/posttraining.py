@@ -415,7 +415,7 @@ def train_posttraining(
             if (cursor.epoch, cursor.position) != (
                 expected_epoch,
                 expected_position,
-            ) or cursor.order != cursor._order():
+            ) or not cursor.order_is_consistent():
                 raise ValueError("checkpoint data cursor is inconsistent")
             updates = step * (config.policy_epochs if online else 1)
             for group in optimizer.param_groups:

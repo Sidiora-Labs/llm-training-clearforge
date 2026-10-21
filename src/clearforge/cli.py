@@ -7,6 +7,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import shutil
 import sys
 from contextlib import ExitStack
 from pathlib import Path
@@ -34,14 +35,34 @@ def _parser() -> argparse.ArgumentParser:
     doctor.add_argument(
         "--config", type=Path, help="also count configured parameters without allocation"
     )
+    plan = commands.add_parser(
+        "plan", help="estimate parameters, token budget, memory, checkpoints and disk for a run"
+    )
+    plan.add_argument("config", type=Path)
+    plan.add_argument(
+        "--world-size", type=_positive, default=1, help="torchrun ranks sharing the global batch"
+    )
+    plan.add_argument(
+        "--device-memory-gib",
+        type=float,
+        help="plan for an accelerator with this much memory instead of the local device",
+    )
+    plan.add_argument(
+        "--device", choices=("auto", "cpu", "cuda"), default="auto", help="target device type"
+    )
     data = commands.add_parser("data", help="prepare and pack auditable datasets")
     data_commands = data.add_subparsers(dest="operation", required=True)
     prepare = data_commands.add_parser("prepare", help="deduplicate and split JSONL records")
-    prepare.add_argument("--source", type=Path, action="append", required=True)
     prepare.add_argument(
-        "--license", required=True, help="license declaration applying to all sources"
+        "--source", type=Path, action="append", help="JSONL file; repeat for several sources"
     )
-    prepare.add_argument("--language", default="en")
+    prepare.add_argument("--license", help="license declaration applying to every --source")
+    prepare.add_argument("--language", default="en", help="language declared for every --source")
+    prepare.add_argument(
+        "--sources",
+        type=Path,
+        help="TOML corpus manifest with per-source license, language and selection filters",
+    )
     prepare.add_argument("--mode", choices=("pretrain", "sft"), required=True)
     prepare.add_argument("--output", type=Path, required=True)
     prepare.add_argument("--validation-fraction", type=float, default=0.05)
@@ -207,6 +228,7 @@ def _doctor(config: Path | None) -> dict[str, Any]:
     for filename in ("cpu.max", "memory.max"):
         path = Path("/sys/fs/cgroup") / filename
         report[f"cgroup_{filename}"] = path.read_text().strip() if path.is_file() else None
+    report["disk_free_bytes"] = shutil.disk_usage(Path.cwd()).free
     if report["cuda_available"]:
         for index in range(torch.cuda.device_count()):
             with torch.cuda.device(index):
@@ -351,9 +373,29 @@ def _chat(args: argparse.Namespace) -> None:
             return
 
 
+def _plan(args: argparse.Namespace) -> dict[str, Any]:
+    from .config import load_config
+    from .planning import GIB, plan_run, summarize
+
+    memory = None
+    if args.device_memory_gib is not None:
+        if not args.device_memory_gib > 0:
+            raise ValueError("--device-memory-gib must be positive")
+        memory = int(args.device_memory_gib * GIB)
+    plan = plan_run(
+        load_config(args.config),
+        world_size=args.world_size,
+        device_memory_bytes=memory,
+        device_type=None if args.device == "auto" else args.device,
+    )
+    return {"summary": summarize(plan), **plan}
+
+
 def _run(args: argparse.Namespace) -> Any:
     if args.command == "doctor":
         return _doctor(args.config)
+    if args.command == "plan":
+        return _plan(args)
     if args.command == "data":
         from .data import SourceSpec, pack_dataset, prepare_sources
 
@@ -366,8 +408,18 @@ def _run(args: argparse.Namespace) -> Any:
                 adapter=args.adapter,
             )
         if args.operation == "prepare":
+            if args.sources is not None:
+                if args.source or args.license:
+                    raise ValueError("--sources cannot be combined with --source or --license")
+                from .data import load_source_manifest
+
+                sources = load_source_manifest(args.sources)
+            elif not args.source or not args.license:
+                raise ValueError("prepare requires --sources, or --source together with --license")
+            else:
+                sources = [SourceSpec(path, args.license, args.language) for path in args.source]
             return prepare_sources(
-                [SourceSpec(path, args.license, args.language) for path in args.source],
+                sources,
                 args.output,
                 validation_fraction=args.validation_fraction,
                 seed=args.seed,

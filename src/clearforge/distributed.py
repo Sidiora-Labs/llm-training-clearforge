@@ -45,6 +45,9 @@ from .training import (
     _enable_activation_checkpointing,
     _inputs,
     _json_bytes,
+    _memory_guidance,
+    _preflight,
+    _progress_record,
     _read_resume_metrics,
     _run_lock,
     _runtime_identity,
@@ -52,7 +55,8 @@ from .training import (
     _stop_signals,
     _validate_loaded_state,
     _validation,
-    learning_rate_factor,
+    build_optimizer,
+    schedule_factor,
 )
 
 
@@ -212,19 +216,9 @@ def _train(config, device, resume, stop_after_steps):
                 model.load_state_dict((payload or initial)["model"], strict=True)
             if config.training.activation_checkpointing:
                 _enable_activation_checkpointing(model)
-            optimizer = torch.optim.AdamW(
-                model.parameters(),
-                lr=config.training.learning_rate,
-                weight_decay=config.training.weight_decay,
-            )
+            optimizer = build_optimizer(model, config.training)
             scheduler = torch.optim.lr_scheduler.LambdaLR(
-                optimizer,
-                lambda step: learning_rate_factor(
-                    step,
-                    max_steps=config.training.max_steps,
-                    warmup_steps=config.training.warmup_steps,
-                    minimum=config.training.min_lr_ratio,
-                ),
+                optimizer, lambda step: schedule_factor(config.training, step)
             )
             scaler = torch.amp.GradScaler("cuda", enabled=config.training.precision == "fp16")
             cursor = _DataCursor(
@@ -263,6 +257,8 @@ def _train(config, device, resume, stop_after_steps):
             payload["run_id"] if payload else (uuid.uuid4().hex if rank == 0 else None)
         )
         run_id = run_ids[0]
+        # Rank zero owns the output volume, so it alone plans and checks disk space.
+        plan = _agree(lambda: _preflight(config, device, world_size=world) if rank == 0 else None)
 
         def create_output():
             if rank != 0:
@@ -278,6 +274,7 @@ def _train(config, device, resume, stop_after_steps):
                             "config": config.to_dict(),
                             "identities": identities,
                             "initial_checkpoint_sha256": initial_hash,
+                            "plan": plan,
                         }
                     ),
                     output / "run.json",
@@ -338,7 +335,7 @@ def _train(config, device, resume, stop_after_steps):
             _agree(write)
             last_saved = step
 
-        with _stop_signals() as stop:
+        with _stop_signals() as stop, _memory_guidance(plan):
             save()
             if payload:
                 _agree(
@@ -346,6 +343,7 @@ def _train(config, device, resume, stop_after_steps):
                 )
             model.train()
             started, initial_step, token_sum = time.monotonic(), step, 0
+            parameter_total = model.parameter_count()
             while step < config.training.max_steps:
                 stop_tensor = torch.tensor(
                     int(
@@ -470,23 +468,22 @@ def _train(config, device, resume, stop_after_steps):
                     and step % config.training.log_every == 0
                 ):
                     elapsed = max(time.monotonic() - started, 1e-9)
-                    print(
-                        _json_bytes(
-                            {
-                                "step": step,
-                                "max_steps": config.training.max_steps,
-                                "loss": train_loss,
-                                "tokens_per_second": token_sum / elapsed,
-                                "eta_seconds": (config.training.max_steps - step)
-                                * elapsed
-                                / (step - initial_step),
-                            }
-                        )
-                        .decode()
-                        .strip(),
-                        file=sys.stderr,
-                        flush=True,
+                    progress = _progress_record(
+                        step=step,
+                        config=config,
+                        loss=train_loss,
+                        learning_rate=update_lr,
+                        gradient_norm=float(norm),
+                        epoch=cursor.epoch,
+                        tokens_per_second=token_sum / elapsed,
+                        eta_seconds=(config.training.max_steps - step)
+                        * elapsed
+                        / (step - initial_step),
+                        parameters=parameter_total,
+                        device=device,
                     )
+                    progress["world_size"] = world
+                    print(_json_bytes(progress).decode().strip(), file=sys.stderr, flush=True)
             save()
             interrupted = torch.tensor(int(stop["requested"]), device=device)
             dist.all_reduce(interrupted, op=dist.ReduceOp.MAX)
